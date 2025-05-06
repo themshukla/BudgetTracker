@@ -3,11 +3,11 @@ import React from "react";
 import { Text, PlatformPressable } from "@react-navigation/elements";
 import { useLinkBuilder, useTheme } from "@react-navigation/native";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 
 const TabBar = ({ state, descriptors, navigation }) => {
   const { colors } = useTheme();
   const { buildHref } = useLinkBuilder();
-
   const icons = {
     budget: (props) => (
       <FontAwesome size={22} name="dollar" color={"#ODODOD"} {...props} />
@@ -15,9 +15,18 @@ const TabBar = ({ state, descriptors, navigation }) => {
     networth: (props) => (
       <FontAwesome size={22} name="money" color={"#ODODOD"} {...props} />
     ),
+    userAccount: (props) => (
+      <MaterialIcons
+        name="account-circle"
+        size={24}
+        color={"#ODODOD"}
+        {...props}
+      />
+    ),
   };
+
   return (
-    <View style={{ backgroundColor: "#1D160E", paddingTop: 25 }}>
+    <View style={{ backgroundColor: "#15120F", paddingTop: 25 }}>
       <View style={styles.tabBar}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
@@ -49,6 +58,9 @@ const TabBar = ({ state, descriptors, navigation }) => {
             });
           };
 
+          const IconComponent =
+            icons[route.name.replace(/[()]/g, "")] || (() => null);
+
           return (
             <PlatformPressable
               key={route.name}
@@ -60,9 +72,7 @@ const TabBar = ({ state, descriptors, navigation }) => {
               onLongPress={onLongPress}
               style={styles.tabBarItem}
             >
-              {icons[route.name.replace(/[()]/g, "")]({
-                color: isFocused ? "#FEFEFE" : "#ODODOD",
-              })}
+              <IconComponent color={isFocused ? "#FEFEFE" : "#ODODOD"} />
               <Text
                 style={{
                   color: isFocused ? "#FEFEFE" : "#ODODOD",
@@ -81,7 +91,7 @@ const TabBar = ({ state, descriptors, navigation }) => {
 
 const styles = StyleSheet.create({
   tabBar: {
-    bottom: 12,
+    bottom: 20,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",

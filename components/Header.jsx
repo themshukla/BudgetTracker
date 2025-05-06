@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
 import React, { useState } from "react";
+import { router } from "expo-router";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 
 const Header = () => {
@@ -32,7 +33,15 @@ const Header = () => {
           data={months}
           horizontal
           renderItem={({ item }) => (
-            <Pressable onPress={() => alert("Clicked")} style={styles.button}>
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: "transaction",
+                  params: { month: item },
+                })
+              }
+              style={styles.button}
+            >
               <Text style={styles.item}>{item}</Text>
             </Pressable>
           )}
@@ -40,7 +49,10 @@ const Header = () => {
         />
       </View>
       <View style={styles.transaction}>
-        <Pressable onPress={() => alert("Clicked")} style={styles.button}>
+        <Pressable
+          onPress={() => router.push("transaction")}
+          style={styles.button}
+        >
           <FontAwesome6 name="money-bill-transfer" size={24} color="#BA9731" />
           <Text style={styles.subItem}>Transaction</Text>
         </Pressable>
@@ -57,7 +69,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
-    backgroundColor: "#1D160E",
+    backgroundColor: "#15120F",
     height: 60,
     width: "100%",
     padding: 5,

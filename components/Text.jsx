@@ -9,6 +9,8 @@ const styles = StyleSheet.create({
   defaultFont: {
     fontFamily: "Outfit-Regular",
     color: "#fefefe",
+    fontSize: 18,
+    textAlign: "center",
   },
 });
 
