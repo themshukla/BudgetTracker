@@ -68,7 +68,7 @@ const ItemsInputModal = ({
         >
           <View style={styles.modalView}>
             <Pressable style={{ left: 0 }} onPress={closeModal}>
-              <FontAwesome5 name="times-circle" size={24} color="#800000" />
+              <FontAwesome5 name="times-circle" size={30} color="#FF5A5F" />
             </Pressable>
             <Text style={styles.modalText}>Enter Details</Text>
 

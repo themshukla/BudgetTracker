@@ -96,7 +96,7 @@ const LiabilityCard = ({
         <Pressable
           style={{ marginLeft: 10 }}
           onPress={() => {
-            removeItem(card.id, item.id);
+            removeItem(card.id, item);
             if (refArray[index]) refArray[index].close();
           }}
         >
@@ -157,6 +157,11 @@ const LiabilityCard = ({
     if (!items.length) {
       return (
         <View style={{ flex: 1, justifyContent: "flex-end", padding: 10 }}>
+          <View style={{ paddingVertical: 10, paddingHorizontal: 15 }}>
+            <Text style={{ color: "#888", fontStyle: "italic" }}>
+              No items yet
+            </Text>
+          </View>
           <View style={{ alignItems: "flex-end" }}>
             <Pressable
               style={styles.button}
@@ -240,7 +245,8 @@ const LiabilityCard = ({
               <Text
                 style={{
                   color: "#BA9731",
-                  fontSize: 12,
+                  fontSize: 13,
+                  fontWeight: "bold",
                   textAlign: "center",
                 }}
               >
@@ -258,7 +264,7 @@ const LiabilityCard = ({
         </View>
       </View>
 
-      <View style={hasContent ? { height: 300 } : { minHeight: 150 }}>
+      <View style={hasContent ? { height: 350 } : { minHeight: 150 }}>
         <TabView
           navigationState={{ index, routes }}
           renderScene={renderScene}

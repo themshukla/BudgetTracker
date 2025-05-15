@@ -6,6 +6,7 @@ const TOAST_COLORS = {
   success: "#4BB543",
   error: "#D33F49",
   info: "#4F6D7A",
+  warning: "#FFA500",
 };
 
 export const showToast = (message, type = "info") => {

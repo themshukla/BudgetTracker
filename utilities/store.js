@@ -7,12 +7,14 @@ import {
   doc,
   setDoc,
   updateDoc,
-  deleteDoc,
+  arrayRemove,
   query,
   where,
   arrayUnion,
   deleteField,
 } from "firebase/firestore";
+import { showToast } from "./toast";
+import { v4 as uuidv4 } from "uuid";
 
 // Create a new document for a user
 const createDocumentForUser = async (userEmail, newData) => {
@@ -50,59 +52,57 @@ const fetchBudgetDataForUser = async (userEmail) => {
   }
 };
 
-const addItemToUserBudget = async (userEmail, docId, newItem, itemType) => {
+const addItemToUserBudget = async (docId, itemType, newItem) => {
   try {
-    // Create a query to fetch the document for the specific user and document ID
-    const q = query(
-      collection(db, "budgetData"),
-      where("userEmail", "==", userEmail),
-      where("__name__", "==", docId) // Query for the specific document ID
-    );
-    const querySnapshot = await getDocs(q);
+    const docRef = doc(db, "budgetData", docId);
 
-    if (querySnapshot.empty) {
-      return;
-    }
+    if (itemType === "custom") {
+      const path =
+        newItem.entryType === "planned"
+          ? `budget.custom.cards.${newItem.cardId}.items.planned.${newItem.name}`
+          : `budget.custom.cards.${newItem.cardId}.items.spent`;
 
-    // Get the reference of the document
-    const docRef = querySnapshot.docs[0]; // Get the first match (should only be one)
-
-    // Create the new data structure based on the itemType and categoryType
-    let fieldPath = "";
-    if (itemType === "discretionary") {
-      fieldPath = "budget.standard.discretionary";
-    } else if (itemType === "nonDiscretionary") {
-      fieldPath = "budget.standard.nonDiscretionary";
-    } else if (itemType === "custom") {
-      if (newItem.type === "planned") {
-        fieldPath = `budget.custom.cards.${newItem.cardId}.planned.${newItem.name}`;
-        await updateDoc(docRef.ref, {
-          [fieldPath]: {
+      if (newItem.entryType === "planned") {
+        await updateDoc(docRef, {
+          [path]: {
             id: newItem.id,
             planned: newItem.planned,
           },
         });
-      } else if (newItem.type === "spent") {
-        fieldPath = `budget.custom.cards.${newItem.cardId}.spent`;
-        await updateDoc(docRef.ref, {
-          [fieldPath]: arrayUnion({
+      } else {
+        await updateDoc(docRef, {
+          [path]: arrayUnion({
             id: newItem.id,
             amount: newItem.amount,
             category: newItem.category,
-            note: newItem.note || "",
+            name: newItem.name,
             timestamp: new Date(),
           }),
         });
       }
-    }
+    } else if (itemType === "standard") {
+      const basePath = `budget.standard.cards.${newItem.cardId}.${newItem.section}`;
 
-    if (fieldPath) {
-      // Add the new item to the correct field using arrayUnion to avoid duplicates
-      await updateDoc(docRef.ref, {
-        [fieldPath]: arrayUnion(newItem),
-      });
-    } else {
-      console.log("Invalid itemType or categoryType.");
+      if (newItem.entryType === "planned") {
+        const plannedPath = `${basePath}.planned.${newItem.name}`;
+        await updateDoc(docRef, {
+          [plannedPath]: {
+            id: newItem.id,
+            planned: newItem.planned,
+          },
+        });
+      } else if (newItem.entryType === "spent") {
+        const spentPath = `${basePath}.spent`;
+        await updateDoc(docRef, {
+          [spentPath]: arrayUnion({
+            id: newItem.id,
+            amount: newItem.amount,
+            category: newItem.category,
+            name: newItem.name,
+            timestamp: new Date(),
+          }),
+        });
+      }
     }
   } catch (error) {
     console.error("Error adding item to user budget:", error);
@@ -130,44 +130,61 @@ const updateDocumentForUser = async (userEmail, docId, updatedData) => {
   }
 };
 
-const removeItemForUser = async (docId, path, itemKey) => {
+const removeItemForUser = async (docId, path, itemToRemove) => {
   try {
     const docRef = doc(db, "budgetData", docId);
     const docSnap = await getDoc(docRef);
 
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      const pathSegments = path.split(".");
-
-      let current = data;
-      for (let i = 0; i < pathSegments.length - 1; i++) {
-        current = current[pathSegments[i]];
-        if (!current) throw new Error("Invalid path in Firestore structure");
-      }
-
-      const lastSegment = pathSegments[pathSegments.length - 1];
-
-      if (Array.isArray(current[lastSegment])) {
-        // For spent array: remove by id
-        current[lastSegment] = current[lastSegment].filter(
-          (item) => item.id !== itemKey
-        );
-        await updateDoc(docRef, data);
-      } else if (current[lastSegment]?.[itemKey]) {
-        // For planned object: delete by key
-        delete current[lastSegment][itemKey];
-        await updateDoc(docRef, data);
-      } else {
-        console.warn("Item not found in Firestore document.");
-      }
-    } else {
+    if (!docSnap.exists()) {
       console.warn("Document not found.");
+      return;
     }
+
+    const isArrayPath = path.endsWith(".spent") || path.includes(".spent");
+    const isPlannedObjectPath = path.includes(".planned");
+
+    // ✅ Handle spent array (use arrayRemove)
+    if (isArrayPath && itemToRemove?.id) {
+      await updateDoc(docRef, {
+        [path]: arrayRemove(itemToRemove),
+      });
+      return;
+    }
+
+    // ✅ Handle planned object (use deleteField on full path)
+    if (isPlannedObjectPath && itemToRemove?.name) {
+      await updateDoc(docRef, {
+        [path]: deleteField(),
+      });
+      return;
+    }
+
+    console.warn("Nothing removed. Path or item format may be incorrect.");
   } catch (error) {
     console.error("Error removing item from Firestore:", error);
   }
 };
 
+const removeNetworthItemForUser = async (docId, arrayPath, itemId) => {
+  try {
+    const docRef = doc(db, "budgetData", docId);
+    const docSnap = await getDoc(docRef);
+
+    if (!docSnap.exists()) {
+      console.warn("Document not found.");
+      return;
+    }
+
+    const currentArray = docSnap.get(arrayPath) || [];
+    const updatedArray = currentArray.filter((item) => item.id !== itemId);
+
+    await updateDoc(docRef, {
+      [arrayPath]: updatedArray,
+    });
+  } catch (error) {
+    console.error("Error removing net worth item:", error);
+  }
+};
 const addCardToFirestore = async (newCard, docId, cardType) => {
   try {
     const docRef = doc(db, "budgetData", docId);
@@ -185,24 +202,42 @@ const addCardToFirestore = async (newCard, docId, cardType) => {
       case "custom":
         cardPath = `budget.custom.cards.${newCard.id}`;
         cardValue = {
-          planned: {},
-          spent: [],
+          id: newCard.id,
+          type: "custom",
+          items: {
+            planned: {},
+            spent: [],
+          },
         };
         break;
 
       case "standard":
         cardPath = `budget.standard.cards.${newCard.id}`;
         cardValue = {
-          discretionary: {},
-          nonDiscretionary: {},
+          id: newCard.id,
+          type: "standard",
+          discretionaryItems: {
+            planned: {},
+            spent: [],
+          },
+          nonDiscretionaryItems: {
+            planned: {},
+            spent: [],
+          },
         };
         break;
 
       case "asset":
         cardPath = `networth.asset.cards.${newCard.id}`;
         cardValue = {
-          fixed: {},
-          normal: {},
+          id: newCard.id,
+          type: "asset",
+          totalNormal: 0,
+          totalFixed: 0,
+          items: {
+            normal: [],
+            fixed: [],
+          },
         };
         break;
 
@@ -210,8 +245,14 @@ const addCardToFirestore = async (newCard, docId, cardType) => {
       default:
         cardPath = `networth.liability.cards.${newCard.id}`;
         cardValue = {
-          normal: {},
-          longTerm: {},
+          id: newCard.id,
+          type: "liability",
+          totalNormal: 0,
+          totalFixed: 0,
+          items: {
+            normal: [],
+            longTerm: [],
+          },
         };
         break;
     }
@@ -225,6 +266,8 @@ const addCardToFirestore = async (newCard, docId, cardType) => {
 };
 
 const removeCardFromFirestore = async (docId, cardType, cardId) => {
+  console.log(docId, cardType, cardId);
+
   try {
     const docRef = doc(db, "budgetData", docId);
 
@@ -237,7 +280,7 @@ const removeCardFromFirestore = async (docId, cardType, cardId) => {
     } else if (cardType === "asset") {
       path = `networth.asset.cards.${cardId}`;
     } else if (cardType === "liability") {
-      path = `networth.debt.cards.${cardId}`;
+      path = `networth.liability.cards.${cardId}`;
     } else {
       throw new Error("Invalid card type.");
     }
@@ -252,116 +295,358 @@ const removeCardFromFirestore = async (docId, cardType, cardId) => {
 
 const storeTransactionLog = async (userEmail, transactionData) => {
   try {
-    // Get reference to the user's document in the Firestore collection
-    const userRef = doc(db, "transactionLogs", userEmail);
+    const normalizeNumber = (value) => {
+      const n = Number(value);
+      return isNaN(n) ? 0 : n;
+    };
 
-    // Check if the document exists
-    const userDoc = await getDoc(userRef);
-
-    if (!userDoc.exists()) {
-      // If the document does not exist, create it with an empty 'logs' array
-      await setDoc(userRef, {
-        logs: [],
-      });
-    }
-
-    // Normalize the transaction data to ensure planned and spent are numbers
-    const normalizedTransactionData = transactionData.map((transaction) => ({
+    const normalizedTransactions = transactionData.map((transaction) => ({
       ...transaction,
       item: {
         ...transaction.item,
-        planned: Number(transaction.item.planned),
-        spent: Number(transaction.item.spent),
+        planned: normalizeNumber(transaction.item.planned),
+        spent: normalizeNumber(transaction.item.spent),
+        amount: normalizeNumber(transaction.item.amount),
+        value: normalizeNumber(transaction.item.value),
+        category: transaction.item.category || "", // optional safeguard
       },
-      timestamp: new Date(), // Add current timestamp to each transaction
+      timestamp: new Date(),
+      restored: false,
+      id: transaction.id || `${transaction.item?.id || uuidv4()}-${Date.now()}`,
     }));
 
-    // Update the user's document with the new transaction logs
-    await updateDoc(userRef, {
-      logs: arrayUnion(...normalizedTransactionData), // Use arrayUnion to add new logs without duplicating existing ones
-    });
+    for (const tx of normalizedTransactions) {
+      if (!tx.item?.id || !tx.item?.name) continue; // safeguard
+      const logRef = doc(
+        collection(db, "transactionLogs", userEmail, "logs"),
+        tx.id
+      );
+      await setDoc(logRef, tx);
+    }
+
+    console.log("✅ Transaction logs stored in subcollection.");
   } catch (error) {
-    console.error("Error adding transaction log:", error);
+    console.error("❌ Error storing transaction logs:", error);
   }
 };
 
 const fetchAllTransactionLogsForUser = async (userEmail) => {
   try {
-    const docRef = doc(db, "transactionLogs", userEmail);
-    const docSnap = await getDoc(docRef);
+    const logsRef = collection(db, "transactionLogs", userEmail, "logs");
+    const querySnapshot = await getDocs(logsRef);
 
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      return data.logs || []; // assuming logs are stored under a "logs" array
-    } else {
-      console.warn("No transaction log found for user:", userEmail);
-      return [];
-    }
+    const logs = [];
+    querySnapshot.forEach((doc) => {
+      logs.push({ id: doc.id, ...doc.data() });
+    });
+
+    return logs;
   } catch (error) {
     console.error("Error fetching transaction logs:", error);
     return [];
   }
 };
 
-const updateItemInDoc = async (userEmail, data) => {
-  const { docId, rootKey, cardType, cardId, itemId, updatedItem } = data;
+const updateItemInDoc = async (data) => {
+  const {
+    docId,
+    rootKey, // "budget" or "networth"
+    cardType, // "custom", "standard", "asset", "liability"
+    cardId,
+    itemId,
+    updatedItem,
+    section, // discretionaryItems, nonDiscretionaryItems, or null
+    subType, // normal or fixed (for asset/liability only)
+  } = data;
 
   try {
     const docRef = doc(db, "budgetData", docId);
     const docSnap = await getDoc(docRef);
-
-    if (!docSnap.exists()) {
-      console.warn("Document not found");
-      return;
-    }
+    if (!docSnap.exists()) return console.warn("❌ Document not found");
 
     const docData = docSnap.data();
-    const cards = docData?.[rootKey]?.[cardType]?.cards;
-    const card = cards?.[cardId];
+    const cardPath = `${rootKey}.${cardType}.cards.${cardId}`;
+    const card = docData?.[rootKey]?.[cardType]?.cards?.[cardId];
+    if (!card) return console.warn("❌ Card not found");
 
-    if (!card) {
-      console.warn("Card not found");
+    // 🔹 Custom Card
+    if (cardType === "custom") {
+      const planned = card.items?.planned ?? {};
+      const spent = card.items?.spent ?? [];
+      const entryType = updatedItem.entryType;
+
+      if (entryType === "planned") {
+        const oldKey = Object.keys(planned).find(
+          (k) => planned[k].id === itemId
+        );
+
+        const deletePath = `${cardPath}.items.planned.${oldKey}`;
+        const updatePath = `${cardPath}.items.planned.${updatedItem.name}`;
+
+        await updateDoc(docRef, {
+          [deletePath]: deleteField(),
+          [updatePath]: {
+            id: updatedItem.id,
+            planned: updatedItem.planned,
+          },
+        });
+      } else if (entryType === "spent") {
+        const newSpentArray = spent.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                name: updatedItem.name,
+                amount: updatedItem.amount,
+                category: updatedItem.category,
+              }
+            : item
+        );
+        await updateDoc(docRef, {
+          [`${cardPath}.items.spent`]: newSpentArray,
+        });
+      }
+    }
+
+    // 🔹 Standard Card
+    else if (cardType === "standard") {
+      const sectionData = card?.[section];
+      const planned = sectionData?.planned ?? {};
+      const spent = sectionData?.spent ?? [];
+      const entryType = updatedItem.entryType;
+
+      if (entryType === "planned") {
+        const oldKey = Object.keys(planned).find(
+          (k) => planned[k].id === itemId
+        );
+        const deletePath = `${cardPath}.${section}.planned.${oldKey}`;
+        const updatePath = `${cardPath}.${section}.planned.${updatedItem.name}`;
+
+        await updateDoc(docRef, {
+          [deletePath]: deleteField(),
+          [updatePath]: {
+            id: updatedItem.id,
+            planned: updatedItem.planned,
+          },
+        });
+      } else if (entryType === "spent") {
+        const newSpentArray = spent.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                name: updatedItem.name,
+                amount: updatedItem.amount,
+                category: updatedItem.category,
+              }
+            : item
+        );
+        await updateDoc(docRef, {
+          [`${cardPath}.${section}.spent`]: newSpentArray,
+        });
+      }
+    }
+
+    // 🔹 Net Worth Card (Asset / Liability)
+    else if (cardType === "asset" || cardType === "liability") {
+      const items = card?.items?.[subType] ?? [];
+
+      const updatedArray = items.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              name: updatedItem.name,
+              networth: updatedItem.networth,
+            }
+          : item
+      );
+
+      await updateDoc(docRef, {
+        [`${cardPath}.items.${subType}`]: updatedArray,
+      });
+    }
+  } catch (error) {
+    console.error("🔥 Firestore update failed:", error);
+  }
+};
+
+const addItemToUserNetworth = async (docId, card, itemType, newItem) => {
+  console.log("Adding item to user net worth:", {
+    docId,
+    card,
+    itemType,
+    newItem,
+  });
+
+  try {
+    const docRef = doc(db, "budgetData", docId);
+    const cardPath = `networth.${card.type}.cards.${card.id}.items.${itemType}`;
+
+    const itemToAdd = {
+      id: newItem.id,
+      name: newItem.name,
+      networth: parseFloat(newItem.networth),
+      timestamp: new Date(),
+    };
+
+    const docSnap = await getDoc(docRef);
+    const existingItems = docSnap.get(cardPath) || [];
+
+    const updatedArray = [...existingItems, itemToAdd];
+
+    await updateDoc(docRef, {
+      [cardPath]: updatedArray,
+    });
+  } catch (error) {
+    console.error("Error adding item to user net worth:", error);
+  }
+};
+
+const restoreItemFromLog = async (docId, logItemId, userEmail) => {
+  try {
+    const logRef = doc(db, "transactionLogs", userEmail, "logs", logItemId);
+    const logSnap = await getDoc(logRef);
+
+    if (!logSnap.exists()) {
+      throw new Error("Log item not found");
+    }
+
+    const logItem = logSnap.data();
+
+    const {
+      item,
+      cardType,
+      cardId,
+      section,
+      entryType,
+      categoryType,
+      restored,
+    } = logItem;
+
+    if (restored) {
+      showToast("Item already restored. Skipping.", "warning");
       return;
     }
 
-    const { name, ...itemWithoutName } = updatedItem;
+    const userDocRef = doc(db, "budgetData", docId);
+    const userDocSnap = await getDoc(userDocRef);
 
+    // Check if the card exists
+    let cardPath = "";
     if (cardType === "custom") {
-      // Direct lookup under card
-      for (const [itemKey, itemValue] of Object.entries(card)) {
-        if (itemValue?.id === itemId) {
-          const deletePath = `${rootKey}.${cardType}.cards.${cardId}.${itemKey}`;
-          const updatePath = `${rootKey}.${cardType}.cards.${cardId}.${name}`;
-
-          await updateDoc(docRef, {
-            [deletePath]: deleteField(),
-            [updatePath]: itemWithoutName,
-          });
-
-          return;
-        }
-      }
+      cardPath = `budget.custom.cards.${cardId}`;
+    } else if (cardType === "standard") {
+      cardPath = `budget.standard.cards.${cardId}`;
     } else {
-      // Need one extra loop: category → item
-      for (const [categoryKey, categoryItems] of Object.entries(card)) {
-        for (const [itemKey, itemValue] of Object.entries(categoryItems)) {
-          if (itemValue?.id === itemId) {
-            const deletePath = `${rootKey}.${cardType}.cards.${cardId}.${categoryKey}.${itemKey}`;
-            const updatePath = `${rootKey}.${cardType}.cards.${cardId}.${categoryKey}.${name}`;
+      // asset or liability
+      cardPath = `networth.${cardType}.cards.${cardId}`;
+    }
 
-            await updateDoc(docRef, {
-              [deletePath]: deleteField(),
-              [updatePath]: itemWithoutName,
-            });
-            return;
-          }
+    const cardExists = !!userDocSnap.get(cardPath);
+    if (!cardExists) {
+      showToast("The card for this item no longer exists.", "warning");
+      return;
+    }
+
+    // Sanitize key name
+    const safeName = item.name.replace(/[.#$/[\]]/g, "_");
+
+    // ─── CUSTOM BUDGET ───
+    if (cardType === "custom") {
+      const path =
+        entryType === "planned"
+          ? `budget.custom.cards.${cardId}.items.planned.${safeName}`
+          : `budget.custom.cards.${cardId}.items.spent`;
+
+      if (entryType === "planned") {
+        await updateDoc(userDocRef, {
+          [path]: {
+            id: item.id,
+            planned: item.planned,
+          },
+        });
+      } else {
+        const existing = userDocSnap.get(path) || [];
+        const alreadyExists = existing.some((i) => i.id === item.id);
+        if (!alreadyExists) {
+          await updateDoc(userDocRef, {
+            [path]: arrayUnion({
+              id: item.id,
+              amount: item.amount,
+              category: item.category,
+              name: item.name,
+              timestamp: new Date(),
+            }),
+          });
         }
       }
     }
 
-    console.warn("Item not found in card");
+    // ─── STANDARD BUDGET ───
+    else if (cardType === "standard") {
+      const basePath = `budget.standard.cards.${cardId}.${section}`;
+
+      if (entryType === "planned") {
+        const plannedPath = `${basePath}.planned.${safeName}`;
+        await updateDoc(userDocRef, {
+          [plannedPath]: {
+            id: item.id,
+            planned: item.planned,
+          },
+        });
+      } else {
+        const spentPath = `${basePath}.spent`;
+        const existing = userDocSnap.get(spentPath) || [];
+        const alreadyExists = existing.some((i) => i.id === item.id);
+        if (!alreadyExists) {
+          await updateDoc(userDocRef, {
+            [spentPath]: arrayUnion({
+              id: item.id,
+              amount: item.amount,
+              category: item.category,
+              name: item.name,
+              timestamp: new Date(),
+            }),
+          });
+        }
+      }
+    }
+
+    // ─── NET WORTH ───
+    else if (cardType === "asset" || cardType === "liability") {
+      const itemType =
+        categoryType === "fixed" || categoryType === "longTerm"
+          ? categoryType
+          : "normal";
+
+      const path = `networth.${cardType}.cards.${cardId}.items.${itemType}`;
+      const existing = userDocSnap.get(path) || [];
+      const alreadyExists = existing.some((i) => i.id === item.id);
+
+      if (!alreadyExists) {
+        const updatedArray = [
+          ...existing,
+          {
+            id: item.id,
+            name: item.name,
+            networth: parseFloat(item.value ?? item.networth ?? 0),
+            timestamp: new Date(),
+          },
+        ];
+
+        await updateDoc(userDocRef, {
+          [path]: updatedArray,
+        });
+      }
+    }
+
+    // ✅ Mark the log item as restored
+    await updateDoc(logRef, { restored: true });
+    showToast("Item restored successfully!", "success");
+
+    return { success: true, restoredId: item.id };
   } catch (error) {
-    console.error("Firestore update error:", error);
+    console.error("❌ Failed to restore item:", error);
+    showToast("Failed to restore item", "error");
+    throw error;
   }
 };
 
@@ -376,4 +661,7 @@ export {
   storeTransactionLog,
   fetchAllTransactionLogsForUser,
   updateItemInDoc,
+  addItemToUserNetworth,
+  removeNetworthItemForUser,
+  restoreItemFromLog,
 };

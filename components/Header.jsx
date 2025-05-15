@@ -1,10 +1,12 @@
 import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { router } from "expo-router";
 import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 
 const Header = () => {
   const [headerHeight, setHeaderHeight] = useState(0);
+  const [selectedMonth, setSelectedMonth] = useState(null);
+  const flatListRef = useRef(null);
 
   const months = [
     "JAN",
@@ -21,6 +23,21 @@ const Header = () => {
     "DEC",
   ];
 
+  useEffect(() => {
+    const currentMonth = new Date()
+      .toLocaleString("default", { month: "short" })
+      .toUpperCase();
+    const index = months.indexOf(currentMonth);
+    setSelectedMonth(currentMonth);
+
+    // Safe scroll
+    if (flatListRef.current && index !== -1) {
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToIndex?.({ index, animated: true });
+      });
+    }
+  }, []);
+
   const handleLayout = (event) => {
     const { height } = event.nativeEvent.layout;
     setHeaderHeight(height);
@@ -30,19 +47,35 @@ const Header = () => {
     <View style={styles.container} onLayout={handleLayout}>
       <View style={styles.calendar}>
         <FlatList
+          // ref={flatListRef}
           data={months}
           horizontal
-          renderItem={({ item }) => (
+          keyExtractor={(item) => item}
+          renderItem={({ item, index }) => (
             <Pressable
-              onPress={() =>
+              onPress={() => {
+                setSelectedMonth(item);
                 router.push({
                   pathname: "transaction",
                   params: { month: item },
-                })
-              }
-              style={styles.button}
+                });
+              }}
+              style={[
+                styles.button,
+                selectedMonth === item && { backgroundColor: "#BA9731" },
+              ]}
             >
-              <Text style={styles.item}>{item}</Text>
+              <Text
+                style={[
+                  styles.item,
+                  selectedMonth === item && {
+                    color: "#1D160E",
+                    fontWeight: "bold",
+                  },
+                ]}
+              >
+                {item}
+              </Text>
             </Pressable>
           )}
           showsHorizontalScrollIndicator={false}

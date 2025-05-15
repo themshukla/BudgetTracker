@@ -16,8 +16,8 @@ import ItemsInputModal from "../../../components/ItemsInputModal";
 import {
   fetchBudgetDataForUser,
   addCardToFirestore,
-  updateDocumentForUser,
-  removeItemForUser,
+  addItemToUserNetworth,
+  removeNetworthItemForUser,
   removeCardFromFirestore,
   storeTransactionLog,
   updateItemInDoc,
@@ -49,6 +49,8 @@ const Networth = () => {
   const [modalType, setModalType] = useState(null);
   const [loading, setLoading] = useState(true);
   const [netWorthSummary, setNetWorthSummary] = useState(0);
+  const [categories, setCategories] = useState([]);
+  const [category, setCategory] = useState(null);
 
   const navigation = useNavigation();
   const { userEmail, isLoggedIn } = useUser();
@@ -103,6 +105,7 @@ const Networth = () => {
         const data = await fetchBudgetDataForUser(userEmail);
         setCurrentDocId(data[0].id);
         const transformedData = formatBudgetData(data[0]);
+        console.log("Transformed Data:", transformedData);
         setCards(transformedData);
       } catch (err) {
         console.log(err);
@@ -124,7 +127,7 @@ const Networth = () => {
         storeTransactionLog(userEmail, cardChanges);
         setCardChanges([]);
       }
-    }, 1500);
+    }, 350);
     return () => clearTimeout(timer);
   }, [cardChanges]);
 
@@ -134,6 +137,21 @@ const Networth = () => {
       headerTitleStyle: { color: "#FEFEFE" },
     });
   }, [netWorthSummary]);
+
+  const getNetWorthBadgeLabel = (cardType, categoryType) => {
+    const typeLabel = cardType === "asset" ? "Asset" : "Liability";
+
+    const prefix =
+      cardType === "asset"
+        ? categoryType === "fixed"
+          ? "Fixed"
+          : "Normal"
+        : categoryType === "longTerm"
+        ? "Long-Term"
+        : "Normal";
+
+    return `Net Worth ${prefix} ${typeLabel}`;
+  };
 
   const calculateNetWorthSummary = (cards) => {
     let totalFixed = 0,
@@ -163,7 +181,7 @@ const Networth = () => {
     const parseItems = (entries) =>
       Object.entries(entries ?? {}).map(([name, item]) => ({
         id: item.id,
-        name,
+        name: item.name,
         networth: parseFloat(item.networth),
       }));
 
@@ -171,8 +189,8 @@ const Networth = () => {
       itemsArray.reduce((sum, item) => sum + Number(item.networth), 0);
 
     Object.entries(assetCards).forEach(([key, value]) => {
-      const fixed = parseItems(value.fixed);
-      const normal = parseItems(value.normal);
+      const fixed = parseItems(value.items.fixed);
+      const normal = parseItems(value.items.normal);
       cards.push({
         id: key,
         type: "asset",
@@ -183,8 +201,8 @@ const Networth = () => {
     });
 
     Object.entries(liabilityCards).forEach(([key, value]) => {
-      const longTerm = parseItems(value.longTerm);
-      const normal = parseItems(value.normal);
+      const longTerm = parseItems(value.items.longTerm);
+      const normal = parseItems(value.items.normal);
       cards.push({
         id: key,
         type: "liability",
@@ -220,26 +238,25 @@ const Networth = () => {
 
   const addItem = async (currentCardId, newItem) => {
     const card = cards.find((c) => c.id === currentCardId);
-    const itemKey = newItem.name;
     const newItemId = uuid.v4();
-    const path = `networth.${card.type}.cards.${currentCardId}.${itemType}.${itemKey}`;
-
     const updatedItem = {
       ...newItem,
       id: newItemId,
       networth: parseFloat(newItem.networth),
     };
 
+    await addItemToUserNetworth(currentDocId, card, itemType, updatedItem);
+
     setCards((prevCards) =>
-      prevCards.map((card) => {
-        if (card.id !== currentCardId) return card;
-        const updatedItems = [...card.items[itemType], updatedItem];
-        const newItems = { ...card.items, [itemType]: updatedItems };
+      prevCards.map((c) => {
+        if (c.id !== currentCardId) return c;
+        const updatedItems = [...c.items[itemType], updatedItem];
+        const newItems = { ...c.items, [itemType]: updatedItems };
         return {
-          ...card,
+          ...c,
           items: newItems,
-          total: recalculateTotal({ ...card, items: newItems }),
-          ...recalculateAllTotals(card, newItems),
+          total: recalculateTotal({ ...c, items: newItems }),
+          ...recalculateAllTotals(c, newItems),
         };
       })
     );
@@ -249,21 +266,21 @@ const Networth = () => {
       {
         type: "added",
         item: updatedItem,
-        itemType: path,
-        timestamp: Date.now(),
+        id: updatedItem.id,
+        cardId: currentCardId,
+        cardType: card.type,
+        categoryType: itemType,
+        timestamp: new Date(),
         month: new Date().toLocaleString("default", { month: "short" }),
+        badgeLabel: getNetWorthBadgeLabel(card.type, itemType),
       },
     ]);
-
-    await updateDocumentForUser(userEmail, currentDocId, {
-      [path]: { networth: updatedItem.networth, id: newItemId },
-    });
 
     setItemType(null);
     showToast("Item added successfully!", "success");
   };
 
-  const removeItem = async (cardId, itemId) => {
+  const removeItem = async (cardId, item) => {
     const currentCard = cards.find((card) => card.id === cardId);
     if (!currentCard) {
       console.warn("Card not found");
@@ -275,7 +292,7 @@ const Networth = () => {
     let itemType = null;
 
     for (const [category, itemsArray] of Object.entries(currentCard.items)) {
-      const foundItem = itemsArray.find((item) => item.id === itemId);
+      const foundItem = itemsArray.find((i) => i.id === item.id);
       if (foundItem) {
         itemToRemove = foundItem;
         itemType = category;
@@ -288,7 +305,7 @@ const Networth = () => {
       return;
     }
 
-    const itemTypePath = `networth.${cardType}.cards.${cardId}.${itemType}`;
+    const itemTypePath = `networth.${cardType}.cards.${cardId}.items.${itemType}`;
 
     setCards((prevCards) =>
       prevCards.map((card) => {
@@ -296,7 +313,7 @@ const Networth = () => {
 
         const updatedItems = {
           ...card.items,
-          [itemType]: card.items[itemType].filter((item) => item.id !== itemId),
+          [itemType]: card.items[itemType].filter((i) => i.id !== item.id),
         };
 
         return {
@@ -312,25 +329,29 @@ const Networth = () => {
       ...prev,
       {
         type: "removed",
-        item: itemToRemove,
-        itemType: `${itemTypePath}.${itemToRemove.name}`,
-        timestamp: Date.now(),
+        item,
+        id: item.id,
+        cardId: currentCardId,
+        cardType: currentCard.type,
+        categoryType: itemType,
+        timestamp: new Date(),
         month: new Date().toLocaleString("default", { month: "short" }),
+        badgeLabel: getNetWorthBadgeLabel(currentCard.type, itemType),
       },
     ]);
 
     if (itemToRemove?.name) {
-      await removeItemForUser(currentDocId, itemTypePath, itemToRemove.name);
+      await removeNetworthItemForUser(
+        currentDocId,
+        itemTypePath,
+        itemToRemove.id
+      );
     }
 
     showToast("Item removed successfully!", "success");
   };
 
-  const updateItemInFirestore = async (item) => {
-    await updateItemInDoc(userEmail, item);
-  };
-
-  const handleSave = () => {
+  const handleSave = async () => {
     setErrors({ name: "", networth: "" });
 
     if (!name.trim()) {
@@ -371,7 +392,7 @@ const Networth = () => {
         })
       );
 
-      updateItemInFirestore({
+      await updateItemInDoc({
         docId: currentDocId,
         rootKey: "networth",
         cardType: currentCard.type,
@@ -382,6 +403,7 @@ const Networth = () => {
           name: editedItem.name,
           networth: editedItem.networth,
         },
+        subType: itemType,
       });
 
       setCardChanges((prev) => [
@@ -389,8 +411,13 @@ const Networth = () => {
         {
           type: "edited",
           item: editedItem,
-          itemType: `networth.${currentCard.type}.${itemType}`,
-          timestamp: Date.now(),
+          id: editedItem.id,
+          cardId: currentCardId,
+          cardType: currentCard.type,
+          categoryType: itemType,
+          timestamp: new Date(),
+          month: new Date().toLocaleString("default", { month: "short" }),
+          badgeLabel: getNetWorthBadgeLabel(currentCard.type, itemType),
         },
       ]);
 
@@ -525,6 +552,9 @@ const Networth = () => {
           setNote={setNote}
           modalType={modalType}
           setModalEditMode={setModalEditMode}
+          categories={categories}
+          category={category}
+          setCategory={setCategory}
         />
       </SafeAreaView>
     </GestureHandlerRootView>

@@ -17,7 +17,7 @@ import { AntDesign, MaterialIcons } from "@expo/vector-icons";
 import {
   fetchBudgetDataForUser,
   addCardToFirestore,
-  updateDocumentForUser,
+  addItemToUserBudget,
   removeItemForUser,
   removeCardFromFirestore,
   storeTransactionLog,
@@ -29,6 +29,7 @@ import { showToast } from "../../../utilities/toast";
 import { router } from "expo-router";
 import Spinner from "../../../utilities/spinner";
 import AddCardGrid from "../../../utilities/addCardGrid";
+import { getBadgeLabel } from "../../../utilities/getBadgeLabel";
 
 const Budget = () => {
   const [cards, setCards] = useState([]);
@@ -39,6 +40,7 @@ const Budget = () => {
   const [remaining, setRemaining] = useState(0);
   const [networth, setNetworth] = useState("");
   const [currentCardId, setCurrentCardId] = useState(null);
+  const [currentDocId, setCurrentDocId] = useState(null);
   const [modalType, setModalType] = useState(null);
   const [currentEditedItem, setCurrentEditedItem] = useState(null);
   const [modalEditMode, setModalEditMode] = useState(false);
@@ -80,7 +82,7 @@ const Budget = () => {
   const [itemFormType, setItemFormType] = useState("planned");
 
   const { userEmail, isLoggedIn, userInfo } = useUser();
-  const currentDocId = userInfo?.docId;
+
   const currentCard = cards.find((c) => c.id === currentCardId);
   const [category, setCategory] = useState("");
 
@@ -96,12 +98,12 @@ const Budget = () => {
         if (isLoggedIn) {
           setLoading(true);
           const data = await fetchBudgetDataForUser(userEmail);
-
           if (data && data.length > 0 && data[0]) {
             const transformedData = formatBudgetData(data[0]);
             setCards(transformedData);
             console.log("Transformed Data:", transformedData);
             setIsDataReady(true);
+            setCurrentDocId(data[0].id);
           } else {
             console.log(data);
 
@@ -119,11 +121,13 @@ const Budget = () => {
   }, []);
 
   setTimeout(() => {
+    console.log("cardChanges", cardChanges);
+
     if (cardChanges.length > 5) {
       storeTransactionLog(userEmail, cardChanges);
       setCardChanges([]);
     }
-  }, 1500);
+  }, 350);
 
   const convertArrayToObject = (arr) => {
     return arr.reduce((acc, item) => {
@@ -138,43 +142,81 @@ const Budget = () => {
 
   const recalculateTotal = (card) => {
     if (card.type === "custom") {
-      const total = card.parsedItems.reduce(
+      const planned = card.items?.planned ?? {};
+      const spent = card.items?.spent ?? [];
+
+      const parsedItems = Object.entries(planned).map(([category, item]) => {
+        const spentTotal = spent
+          .filter((entry) => entry.category === category)
+          .reduce((sum, entry) => sum + entry.amount, 0);
+
+        return {
+          id: item.id,
+          name: category,
+          planned: item.planned,
+          spent: spentTotal,
+          remaining: item.planned - spentTotal,
+        };
+      });
+
+      const total = parsedItems.reduce(
         (acc, item) => {
-          const planned = Number(item.planned);
-          const spent = Number(item.spent);
-          acc.totalPlanned += planned;
-          acc.totalSpent += spent;
-          acc.totalRemaining += planned - spent;
+          acc.totalPlanned += item.planned;
+          acc.totalSpent += item.spent;
+          acc.totalRemaining += item.remaining;
           return acc;
         },
         { totalPlanned: 0, totalSpent: 0, totalRemaining: 0 }
       );
+
       return total;
-    } else if (card.type === "standard") {
-      const discretionaryArray = Object.values(card.items.discretionary ?? {});
-      const nonDiscretionaryArray = Object.values(
-        card.items.nonDiscretionary ?? {}
+    }
+
+    if (card.type === "standard") {
+      const discretionaryPlanned = card.discretionaryItems?.planned ?? {};
+      const discretionarySpent = card.discretionaryItems?.spent ?? [];
+      const nonDiscretionaryPlanned = card.nonDiscretionaryItems?.planned ?? {};
+      const nonDiscretionarySpent = card.nonDiscretionaryItems?.spent ?? [];
+
+      const parse = (planned, spent) =>
+        Object.entries(planned).map(([category, item]) => {
+          const spentTotal = spent
+            .filter((entry) => entry.category === category)
+            .reduce((sum, entry) => sum + entry.amount, 0);
+
+          return {
+            id: item.id,
+            name: category,
+            planned: item.planned,
+            spent: spentTotal,
+            remaining: item.planned - spentTotal,
+          };
+        });
+
+      const discretionaryParsed = parse(
+        discretionaryPlanned,
+        discretionarySpent
+      );
+      const nonDiscretionaryParsed = parse(
+        nonDiscretionaryPlanned,
+        nonDiscretionarySpent
       );
 
-      const discretionaryTotal = discretionaryArray.reduce(
+      const discretionaryTotal = discretionaryParsed.reduce(
         (acc, item) => {
-          const planned = Number(item.planned);
-          const spent = Number(item.spent);
-          acc.totalPlanned += planned;
-          acc.totalSpent += spent;
-          acc.totalRemaining += planned - spent;
+          acc.totalPlanned += item.planned;
+          acc.totalSpent += item.spent;
+          acc.totalRemaining += item.remaining;
           return acc;
         },
         { totalPlanned: 0, totalSpent: 0, totalRemaining: 0 }
       );
 
-      const nonDiscretionaryTotal = nonDiscretionaryArray.reduce(
+      const nonDiscretionaryTotal = nonDiscretionaryParsed.reduce(
         (acc, item) => {
-          const planned = Number(item.planned);
-          const spent = Number(item.spent);
-          acc.totalPlanned += planned;
-          acc.totalSpent += spent;
-          acc.totalRemaining += planned - spent;
+          acc.totalPlanned += item.planned;
+          acc.totalSpent += item.spent;
+          acc.totalRemaining += item.remaining;
           return acc;
         },
         { totalPlanned: 0, totalSpent: 0, totalRemaining: 0 }
@@ -195,8 +237,8 @@ const Budget = () => {
 
   const formatBudgetData = (data) => {
     const { income, budget } = data;
-    const customCards = budget.custom.cards ?? {};
-    const standardCards = budget.standard.cards ?? {};
+    const customCards = budget.custom?.cards ?? {};
+    const standardCards = budget.standard?.cards ?? {};
     let cards = [];
 
     const parseCardItems = (planned = {}, spent = []) => {
@@ -215,10 +257,11 @@ const Budget = () => {
       });
     };
 
-    const customItems = Object.entries(customCards).map(([key, value]) => {
-      const { items = {} } = value;
-      const planned = items.planned ?? {};
-      const spent = items.spent ?? [];
+    // 🟢 Custom Cards
+    const customItems = Object.entries(customCards).map(([key, card]) => {
+      const items = card?.items ?? {};
+      const planned = items?.planned ?? {};
+      const spent = items?.spent ?? [];
 
       const parsedItems = parseCardItems(planned, spent);
 
@@ -233,7 +276,7 @@ const Budget = () => {
       );
 
       return {
-        id: key,
+        id: card.id ?? key,
         type: "custom",
         items: { planned, spent },
         parsedItems,
@@ -242,22 +285,20 @@ const Budget = () => {
       };
     });
 
-    const standardItems = Object.entries(standardCards).map(([key, value]) => {
-      const discretionaryPlanned = value?.discretionaryItems?.planned ?? {};
-      const discretionarySpent = value?.discretionaryItems?.spent ?? [];
+    // 🔵 Standard Cards
+    const standardItems = Object.entries(standardCards).map(([key, card]) => {
+      const discretionaryPlanned = card?.discretionaryItems?.planned ?? {};
+      const discretionarySpent = card?.discretionaryItems?.spent ?? [];
       const nonDiscretionaryPlanned =
-        value?.nonDiscretionaryItems?.planned ?? {};
-      const nonDiscretionarySpent = value?.nonDiscretionaryItems?.spent ?? [];
+        card?.nonDiscretionaryItems?.planned ?? {};
+      const nonDiscretionarySpent = card?.nonDiscretionaryItems?.spent ?? [];
 
-      // Fallback: handle legacy flat items
-      const fallbackPlanned = value?.items?.planned ?? {};
-      const fallbackSpent = value?.items?.spent ?? [];
+      const fallbackPlanned = card?.items?.planned ?? {};
+      const fallbackSpent = card?.items?.spent ?? [];
 
       const isLegacyFormat =
         Object.keys(discretionaryPlanned).length === 0 &&
         Object.keys(nonDiscretionaryPlanned).length === 0;
-
-      const parsedItems = [];
 
       const parse = (planned, spent) =>
         Object.entries(planned).map(([category, p]) => {
@@ -303,7 +344,7 @@ const Budget = () => {
       );
 
       return {
-        id: key,
+        id: card.id ?? key,
         type: "standard",
         discretionaryItems: {
           planned: isLegacyFormat ? fallbackPlanned : discretionaryPlanned,
@@ -312,6 +353,10 @@ const Budget = () => {
         nonDiscretionaryItems: {
           planned: isLegacyFormat ? {} : nonDiscretionaryPlanned,
           spent: isLegacyFormat ? [] : nonDiscretionarySpent,
+        },
+        parsedItems: {
+          discretionary: discretionaryParsed,
+          nonDiscretionary: nonDiscretionaryParsed,
         },
         income,
         totalDiscretionaryPlanned: discretionaryTotal.totalPlanned,
@@ -324,37 +369,22 @@ const Budget = () => {
     });
 
     cards.push(...customItems, ...standardItems);
+
     return cards;
   };
 
-  const updateItemInFirestore = async (item) => {
-    await updateItemInDoc(userEmail, item);
-  };
-
-  const handleSave = () => {
-    console.log("Saving item...", planned, spent, name, category);
-
-    setErrors({
-      name: "",
-      planned: "",
-      spent: "",
-      category: "",
-      networth: "",
-    });
+  const handleSave = async () => {
+    setErrors({ name: "", planned: "", spent: "", category: "", networth: "" });
 
     let hasError = false;
 
-    // Basic validations
     if (modalType === "asset" || modalType === "liability") {
       if (!name.trim()) {
         setErrors((prev) => ({ ...prev, name: "Name is required." }));
         hasError = true;
       }
       if (!isNumeric(networth)) {
-        setErrors((prev) => ({
-          ...prev,
-          networth: "Please enter a valid number.",
-        }));
+        setErrors((prev) => ({ ...prev, networth: "Enter a valid number." }));
         hasError = true;
       }
     } else if (itemFormType === "planned") {
@@ -363,18 +393,12 @@ const Budget = () => {
         hasError = true;
       }
       if (!isNumeric(planned)) {
-        setErrors((prev) => ({
-          ...prev,
-          planned: "Please enter a valid number.",
-        }));
+        setErrors((prev) => ({ ...prev, planned: "Enter a valid number." }));
         hasError = true;
       }
     } else if (itemFormType === "spent") {
       if (!category) {
-        setErrors((prev) => ({
-          ...prev,
-          category: "Please select a category.",
-        }));
+        setErrors((prev) => ({ ...prev, category: "Select a category." }));
         hasError = true;
       }
       if (!name.trim()) {
@@ -382,58 +406,93 @@ const Budget = () => {
         hasError = true;
       }
       if (!isNumeric(spent)) {
-        setErrors((prev) => ({
-          ...prev,
-          spent: "Please enter a valid number.",
-        }));
+        setErrors((prev) => ({ ...prev, spent: "Enter a valid number." }));
         hasError = true;
       }
     }
 
     if (hasError) return;
 
+    const currentCard = cards.find((card) => card.id === currentCardId);
+    if (!currentCard) return;
+
+    const isSpent = itemFormType === "spent";
+
     if (modalEditMode) {
-      const currentCard = cards.find((card) => card.id === currentCardId);
-      if (!currentCard) return;
-
-      const editedItem = {
-        ...currentEditedItem,
-        name,
-        planned: parseFloat(planned),
-        spent: parseFloat(spent),
-      };
-
       setCards((prevCards) =>
         prevCards.map((card) => {
           if (card.id !== currentCardId) return card;
 
-          let updatedItems;
-          if (currentCard.type === "custom") {
-            updatedItems = card.items.map((item) =>
-              item.id === currentEditedItem.id ? editedItem : item
-            );
+          if (card.type === "custom") {
+            const updatedItems = { ...card.items };
+
+            if (isSpent) {
+              updatedItems.spent = updatedItems.spent.map((item) =>
+                item.id === currentEditedItem.id
+                  ? {
+                      ...item,
+                      name,
+                      amount: parseFloat(spent),
+                      category,
+                    }
+                  : item
+              );
+            } else {
+              const oldKey = Object.keys(updatedItems.planned).find(
+                (key) => updatedItems.planned[key].id === currentEditedItem.id
+              );
+
+              if (oldKey && oldKey !== name) {
+                delete updatedItems.planned[oldKey];
+              }
+
+              updatedItems.planned[name] = {
+                id: currentEditedItem.id,
+                planned: parseFloat(planned),
+              };
+            }
+
+            const totals = recalculateTotal({ ...card, items: updatedItems });
+            return { ...card, items: updatedItems, ...totals };
           } else {
-            const updatedSection = card.items[itemType].map((item) =>
-              item.id === currentEditedItem.id ? editedItem : item
-            );
+            // Standard card
+            const section = itemType;
+            const updatedSection = { ...card[section] };
 
-            updatedItems = {
-              ...card.items,
-              [itemType]: updatedSection,
+            if (isSpent) {
+              updatedSection.spent = updatedSection.spent.map((item) =>
+                item.id === currentEditedItem.id
+                  ? {
+                      ...item,
+                      name,
+                      amount: parseFloat(spent),
+                      category,
+                    }
+                  : item
+              );
+            } else {
+              const oldKey = Object.keys(updatedSection.planned).find(
+                (key) => updatedSection.planned[key].id === currentEditedItem.id
+              );
+
+              if (oldKey && oldKey !== name) {
+                delete updatedSection.planned[oldKey];
+              }
+
+              updatedSection.planned[name] = {
+                id: currentEditedItem.id,
+                planned: parseFloat(planned),
+              };
+            }
+
+            const updatedCard = {
+              ...card,
+              [section]: updatedSection,
             };
+
+            const totals = recalculateTotal(updatedCard);
+            return { ...updatedCard, ...totals };
           }
-
-          const updatedCard = {
-            ...card,
-            items: updatedItems,
-          };
-
-          const totals = recalculateTotal(updatedCard);
-
-          return {
-            ...updatedCard,
-            ...totals,
-          };
         })
       );
 
@@ -441,27 +500,42 @@ const Budget = () => {
         ...prev,
         {
           type: "edited",
-          item: editedItem,
-          itemType:
-            currentCard.type === "standard"
-              ? `budget.standard.${itemType}`
-              : "budget.custom",
+          cardId: currentCardId,
+          cardType: currentCard.type,
+          entryType: itemFormType,
+          section: currentCard.type === "standard" ? itemType : null,
+          id: currentEditedItem.id,
+          item: {
+            id: currentEditedItem.id,
+            name,
+            planned: !isSpent ? parseFloat(planned) : undefined,
+            amount: isSpent ? parseFloat(spent) : undefined,
+            category,
+          },
+          badgeLabel: getBadgeLabel({
+            cardType: currentCard.type,
+            entryType: itemFormType,
+            section: currentCard.type === "standard" ? itemType : null,
+          }),
           timestamp: Date.now(),
           month: new Date().toLocaleString("default", { month: "short" }),
         },
       ]);
 
-      updateItemInFirestore({
+      await updateItemInDoc({
         docId: currentDocId,
         rootKey: "budget",
         cardType: currentCard.type,
         cardId: currentCardId,
-        itemId: editedItem.id,
+        section: currentCard.type === "standard" ? itemType : null,
+        itemId: currentEditedItem.id,
         updatedItem: {
-          id: editedItem.id,
-          name: editedItem.name,
-          planned: editedItem.planned,
-          spent: editedItem.spent,
+          id: currentEditedItem.id,
+          name,
+          planned: !isSpent ? parseFloat(planned) : undefined,
+          amount: isSpent ? parseFloat(spent) : undefined,
+          category,
+          entryType: itemFormType,
         },
       });
 
@@ -469,21 +543,23 @@ const Budget = () => {
       setModalEditMode(false);
       setCurrentEditedItem(null);
     } else {
+      // ➕ New item
       if (modalType === "asset" || modalType === "liability") {
-        // (Optional) Save logic for networth-based items
+        // implement separately
       } else if (itemFormType === "planned") {
         addItem(currentCardId, {
           name,
           planned: parseFloat(planned),
           entryType: "planned",
+          section: itemType,
         });
       } else if (itemFormType === "spent") {
         addItem(currentCardId, {
+          name,
           category,
-          name,
           amount: parseFloat(spent),
-          name,
           entryType: "spent",
+          section: itemType,
         });
       }
     }
@@ -495,7 +571,6 @@ const Budget = () => {
     setPlanned("");
     setSpent("");
     setCategory("");
-    setNote("");
   };
 
   const isNumeric = (value) => {
@@ -505,34 +580,44 @@ const Budget = () => {
   const addCard = async (cardType) => {
     if (!currentDocId) {
       console.warn("❌ Cannot add card: currentDocId is null");
-      showToast(
-        "Something went wrong. Please wait a moment and try again.",
-        "error"
-      );
+      showToast("Something went wrong. Please wait and try again.", "error");
       return;
     }
 
-    const newCard = {
-      id: uuid.v4(),
-      income: "",
-      type: cardType,
-      items:
-        cardType === "custom"
-          ? []
-          : {
-              discretionary: {},
-              nonDiscretionary: {},
+    const newCardId = uuid.v4();
+
+    const newCard =
+      cardType === "custom"
+        ? {
+            id: newCardId,
+            type: "custom",
+            income: "",
+            items: {
+              planned: {},
+              spent: [],
             },
-    };
+          }
+        : {
+            id: newCardId,
+            type: "standard",
+            income: "",
+            discretionaryItems: {
+              planned: {},
+              spent: [],
+            },
+            nonDiscretionaryItems: {
+              planned: {},
+              spent: [],
+            },
+          };
 
     try {
       setCards((prevCards) => [...prevCards, newCard]);
-
       await addCardToFirestore(newCard, currentDocId, cardType);
-
       showToast("Card added successfully!", "success");
     } catch (error) {
       showToast("Failed to add card. Please try again.", "error");
+      console.error(error);
     }
   };
 
@@ -550,152 +635,114 @@ const Budget = () => {
   };
 
   const addItem = async (currentCardId, newItem) => {
-    console.log("Adding item...", newItem);
-
     const card = cards.find((c) => c.id === currentCardId);
     if (!card) return;
 
     const cardType = card.type;
-    const itemKey = newItem.name;
     const newItemId = uuid.v4();
-    const entryType = newItem.entryType; // "planned" or "spent"
+    const entryType = newItem.entryType;
+    const section = newItem.section || "discretionaryItems"; // for standard cards
+    const itemName = newItem.name;
 
-    let path;
-    let firestorePayload;
+    const updatedItem = {
+      ...newItem,
+      id: newItemId,
+      name: itemName,
+    };
 
     if (cardType === "standard") {
-      path = `budget.standard.cards.${currentCardId}.${itemType}.${itemKey}`;
-
-      const updatedItem = {
-        id: newItemId,
-        name: itemKey,
-        planned: parseFloat(newItem.planned),
-        spent: parseFloat(newItem.spent),
-        remaining: parseFloat(newItem.planned) - parseFloat(newItem.spent),
-      };
-
       setCards((prevCards) =>
-        prevCards.map((card) => {
-          if (card.id !== currentCardId) return card;
+        prevCards.map((c) => {
+          if (c.id !== currentCardId) return c;
 
-          const originalItemMap = Array.isArray(card.items[itemType])
-            ? convertArrayToObject(card.items[itemType])
-            : { ...card.items[itemType] };
+          const updatedSection = { ...c[section] };
 
-          const updatedItemMap = {
-            ...originalItemMap,
-            [itemKey]: {
-              id: newItemId,
-              planned: updatedItem.planned,
-              spent: updatedItem.spent,
-            },
+          if (entryType === "planned") {
+            updatedSection.planned = {
+              ...updatedSection.planned,
+              [itemName]: {
+                id: newItemId,
+                planned: parseFloat(newItem.planned),
+              },
+            };
+          } else if (entryType === "spent") {
+            updatedSection.spent = [
+              ...(updatedSection.spent || []),
+              {
+                id: newItemId,
+                category: newItem.category,
+                name: newItem.name,
+                amount: parseFloat(newItem.amount),
+              },
+            ];
+          }
+
+          const updatedCard = {
+            ...c,
+            [section]: updatedSection,
           };
 
-          const updatedItemArray = Object.entries(updatedItemMap).map(
-            ([name, item]) => ({
-              id: item.id,
-              name,
-              planned: item.planned,
-              spent: item.spent,
-              remaining: item.planned - item.spent,
-            })
-          );
+          const totals = recalculateTotal(updatedCard);
+          return { ...updatedCard, ...totals };
+        })
+      );
+
+      await addItemToUserBudget(currentDocId, "standard", {
+        ...updatedItem,
+        cardId: currentCardId,
+        section,
+      });
+    } else if (cardType === "custom") {
+      setCards((prevCards) =>
+        prevCards.map((c) => {
+          if (c.id !== currentCardId) return c;
 
           const updatedItems = {
-            ...card.items,
-            [itemType]: updatedItemArray,
+            planned: { ...(c.items?.planned ?? {}) },
+            spent: [...(c.items?.spent ?? [])],
           };
 
-          const totals = recalculateTotal({ ...card, items: updatedItems });
+          if (entryType === "planned") {
+            updatedItems.planned[itemName] = {
+              id: newItemId,
+              planned: parseFloat(newItem.planned),
+            };
+          } else {
+            updatedItems.spent.push({
+              id: newItemId,
+              category: newItem.category,
+              name: newItem.name,
+              amount: parseFloat(newItem.amount),
+            });
+          }
 
           return {
-            ...card,
+            ...c,
             items: updatedItems,
-            ...totals,
           };
         })
       );
 
-      firestorePayload = {
-        planned: newItem.planned,
-        spent: newItem.spent,
-        id: newItemId,
-      };
-    } else {
-      if (entryType === "planned") {
-        path = `budget.custom.cards.${currentCardId}.planned.${itemKey}`;
-        firestorePayload = {
-          id: newItemId,
-          planned: parseFloat(newItem.planned),
-        };
-
-        setCards((prevCards) =>
-          prevCards.map((card) => {
-            if (card.id !== currentCardId) return card;
-
-            const updatedPlanned = {
-              ...card.items.planned,
-              [itemKey]: firestorePayload,
-            };
-
-            const updatedItems = {
-              ...card.items,
-              planned: updatedPlanned,
-            };
-
-            return {
-              ...card,
-              items: updatedItems,
-            };
-          })
-        );
-      } else if (entryType === "spent") {
-        path = `budget.custom.cards.${currentCardId}.spent`;
-
-        firestorePayload = {
-          id: newItemId,
-          category: newItem.category,
-          amount: parseFloat(newItem.amount),
-          name: newItem.name || "",
-          timestamp: new Date(),
-        };
-
-        setCards((prevCards) =>
-          prevCards.map((card) => {
-            if (card.id !== currentCardId) return card;
-
-            const updatedSpent = [
-              ...(card.items.spent || []),
-              firestorePayload,
-            ];
-
-            const updatedItems = {
-              ...card.items,
-              spent: updatedSpent,
-            };
-
-            return {
-              ...card,
-              items: updatedItems,
-            };
-          })
-        );
-      }
+      await addItemToUserBudget(currentDocId, "custom", {
+        ...updatedItem,
+        cardId: currentCardId,
+      });
     }
 
-    // 🔁 Firestore update
-    await updateDocumentForUser(userEmail, currentDocId, {
-      [path]:
-        entryType === "spent" ? arrayUnion(firestorePayload) : firestorePayload,
-    });
-
-    // 📝 Log
     setCardChanges((prev) => [
       ...prev,
       {
         type: "added",
-        item: firestorePayload,
-        itemType: path,
+        cardId: currentCardId,
+        cardType,
+        entryType,
+        section: cardType === "standard" ? section : null,
+        id: updatedItem.id,
+        item: updatedItem,
+        badgeLabel: getBadgeLabel({
+          cardType,
+          entryType,
+        }),
         timestamp: Date.now(),
         month: new Date().toLocaleString("default", { month: "short" }),
       },
@@ -705,89 +752,123 @@ const Budget = () => {
     showToast("Item added successfully!", "success");
   };
 
-  const removeItem = async (cardId, itemId) => {
+  const removeItem = async (cardId, item, { entryType, section = null }) => {
+    console.log("Removing item...", item);
+
     const currentCard = cards.find((card) => card.id === cardId);
-    const currentCardType = currentCard?.type;
+    if (!currentCard) return;
 
-    let itemToRemove;
-    let itemTypePath;
-
-    if (currentCardType === "standard") {
-      if (itemType === "discretionary") {
-        itemToRemove = currentCard.items.discretionary.find(
-          (item) => item.id === itemId
-        );
-        itemTypePath = `budget.standard.cards.${cardId}.discretionary`;
-      } else {
-        itemToRemove = currentCard.items.nonDiscretionary.find(
-          (item) => item.id === itemId
-        );
-        itemTypePath = `budget.standard.cards.${cardId}.nonDiscretionary`;
-      }
-    } else {
-      itemToRemove = currentCard.items.find((item) => item.id === itemId);
-      itemTypePath = `budget.custom.cards.${cardId}`;
-    }
+    const cardType = currentCard.type;
+    let path = "";
+    let itemToRemove = null;
 
     setCards((prevCards) =>
       prevCards.map((card) => {
         if (card.id !== cardId) return card;
 
-        let updatedItems;
-        if (currentCardType === "standard") {
-          updatedItems = {
-            ...card.items,
-            [itemType]: card.items[itemType].filter(
-              (item) => item.id !== itemId
-            ),
-          };
-        } else {
-          updatedItems = card.items.filter((item) => item.id !== itemId);
+        if (cardType === "custom") {
+          const updatedItems = { ...card.items };
+
+          if (entryType === "spent") {
+            itemToRemove = updatedItems.spent.find((i) => i.id === item.id);
+            updatedItems.spent = updatedItems.spent.filter(
+              (i) => i.id !== item.id
+            );
+            path = `budget.custom.cards.${cardId}.items.spent`;
+          } else {
+            const key = Object.keys(updatedItems.planned).find(
+              (k) => updatedItems.planned[k].id === item.id
+            );
+            if (key) {
+              itemToRemove = { id: item.id, name: key };
+              delete updatedItems.planned[key];
+              path = `budget.custom.cards.${cardId}.items.planned.${key}`;
+            }
+          }
+
+          const totals = recalculateTotal({ ...card, items: updatedItems });
+          return { ...card, items: updatedItems, ...totals };
         }
 
-        const totals = recalculateTotal({ ...card, items: updatedItems });
+        if (cardType === "standard") {
+          const updatedSection = { ...card[section] };
 
-        return {
-          ...card,
-          items: updatedItems,
-          ...totals,
-        };
+          if (entryType === "spent") {
+            itemToRemove = updatedSection.spent.find((i) => i.id === item.id);
+            updatedSection.spent = updatedSection.spent.filter(
+              (i) => i.id !== item.id
+            );
+            path = `budget.standard.cards.${cardId}.${section}.spent`;
+          } else {
+            const key = Object.keys(updatedSection.planned).find(
+              (k) => updatedSection.planned[k].id === item.id
+            );
+            if (key) {
+              itemToRemove = { id: item.id, name: key };
+              delete updatedSection.planned[key];
+              path = `budget.standard.cards.${cardId}.${section}.planned.${key}`;
+            }
+          }
+
+          const updatedCard = { ...card, [section]: updatedSection };
+          const totals = recalculateTotal(updatedCard);
+          return { ...updatedCard, ...totals };
+        }
+
+        return card;
       })
     );
+
     setCardChanges((prev) => [
       ...prev,
       {
         type: "removed",
-        item: itemToRemove,
-        itemType:
-          currentCardType === "standard"
-            ? `budget.standard.${itemType}`
-            : "budget.custom",
-
+        cardId,
+        cardType,
+        entryType,
+        section,
+        id: item?.id,
+        item,
+        badgeLabel: getBadgeLabel({ cardType, entryType, section }),
         timestamp: Date.now(),
         month: new Date().toLocaleString("default", { month: "short" }),
       },
     ]);
 
-    if (itemToRemove?.name) {
-      await removeItemForUser(currentDocId, itemTypePath, itemToRemove.name);
+    if (itemToRemove?.name || itemToRemove?.id) {
+      await removeItemForUser(currentDocId, path, itemToRemove);
     }
+
     showToast("Item removed successfully!", "success");
   };
 
-  const handleEdit = (item) => {
+  const handleEdit = (item, cardType, section = null) => {
     setCurrentEditedItem(item);
     console.log("Editing item...", item);
 
     const isSpentItem = item.hasOwnProperty("amount");
-
     setItemFormType(isSpentItem ? "spent" : "planned");
-    setName(item.name || "");
-    setCategory(item.category || ""); // For spent
-    setSpent(isSpentItem ? item.amount?.toString() || "" : "");
-    setPlanned(!isSpentItem ? item.planned?.toString() || "" : "");
 
-    setModalEditMode(item); // ✅ pass full item
+    // For planned items
+    if (!isSpentItem) {
+      setName(item.name || "");
+      setPlanned(item.planned?.toString() || "");
+      setCategory("");
+      setSpent("");
+    } else {
+      // For spent items
+      setName(item.name || "");
+      setSpent(item.amount?.toString() || "");
+      setCategory(item.category || "");
+      setPlanned("");
+    }
+
+    // Store section for standard cards to use during save
+    if (cardType === "standard" && section) {
+      setItemType(section); // e.g., "discretionaryItems" or "nonDiscretionaryItems"
+    }
+
+    setModalEditMode(item); // trigger edit mode
     setModalVisible(true);
   };
 

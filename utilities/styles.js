@@ -87,18 +87,17 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   card: {
-    flex: 1,
     backgroundColor: "#322A28",
     borderRadius: 15,
-    marginHorizontal: 15,
-    marginVertical: 15,
-    padding: 10,
+    margin: 20,
+    padding: 20,
   },
   cardHead: {
     flexDirection: "row",
     justifyContent: "flex-start",
     alignItems: "center",
     width: "auto",
+    marginBottom: 15,
   },
   cardBody: {
     marginTop: 10,
@@ -185,6 +184,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     textAlign: "center",
     color: "#fefefe",
+    marginVertical: 5,
   },
   cardItemFooter: {
     fontSize: 14,
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     width: "auto",
-    height: 20,
+    height: 22,
     borderRadius: 10,
     paddingHorizontal: 10,
   },

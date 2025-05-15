@@ -20,6 +20,7 @@ export default function TabLayout() {
         name="(networth)"
         options={{
           headerTitleStyle: { color: "#FEFEFE" },
+          title: "Net Worth",
         }}
       />
       <Tabs.Screen

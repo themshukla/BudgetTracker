@@ -122,8 +122,6 @@ export const useGoogleAuth = () => {
               "personal-assets": {
                 id: "personal-assets",
                 type: "asset",
-                totalNormal: 20000,
-                totalFixed: 35000,
                 items: {
                   normal: [
                     { id: "a1", name: "Phone", networth: 800 },
@@ -143,11 +141,9 @@ export const useGoogleAuth = () => {
               "personal-liabilities": {
                 id: "personal-liabilities",
                 type: "liability",
-                totalNormal: 5000,
-                totalFixed: 10000,
                 items: {
                   normal: [{ id: "l1", name: "Credit Card", networth: 3000 }],
-                  fixed: [{ id: "l2", name: "Car Loan", networth: 10000 }],
+                  longTerm: [{ id: "l2", name: "Car Loan", networth: 10000 }],
                 },
               },
             },
@@ -186,7 +182,7 @@ export const useGoogleAuth = () => {
     const enhancedUserData = { ...userData, docId };
     updateUserInfo(enhancedUserData);
     await AsyncStorage.setItem("userInfo", JSON.stringify(enhancedUserData));
-    await AsyncStorage.setItem("currentUserDocId", docId);
+    await AsyncStorage.setItem("currentUserDocId", JSON.stringify(docId));
 
     return docId;
   };

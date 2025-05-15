@@ -16,6 +16,7 @@ import {
 } from "react-native-popup-menu";
 import { formatCurrency } from "../utilities/formartCurrency";
 import { TabView, TabBar } from "react-native-tab-view";
+import AnimatedRow from "./AnimatedRow";
 
 const CustomCard = ({
   card,
@@ -30,13 +31,15 @@ const CustomCard = ({
   setItemFormType,
   setCategories,
 }) => {
-  const swipeableRefs = useRef([]);
-  const openSwipeableIndexRef = useRef(null);
+  const plannedSwipeableRefs = useRef([]);
+  const spentSwipeableRefs = useRef([]);
+  const openPlannedIndexRef = useRef(null);
+  const openSpentIndexRef = useRef(null);
   const [index, setIndex] = useState(0);
   const layout = useWindowDimensions();
 
   const routes = [
-    { key: "plan", title: "Planned" },
+    { key: "planned", title: "Planned" },
     { key: "spent", title: "Spent" },
     { key: "remaining", title: "Remaining" },
   ];
@@ -75,16 +78,21 @@ const CustomCard = ({
   const parsedItems = buildParsedItems();
 
   const RightAction = (progress, dragX, item, index, type) => {
-    const styleAnimation = useAnimatedStyle(() => {
-      return {
-        opacity: interpolate(dragX.value, [-100, 0], [1, 0]),
-        transform: [
-          {
-            scale: interpolate(dragX.value, [-100, 0], [1, 0.7]),
-          },
-        ],
-      };
-    });
+    const styleAnimation = useAnimatedStyle(() => ({
+      opacity: interpolate(dragX.value, [-100, 0], [1, 0]),
+      transform: [
+        {
+          scale: interpolate(dragX.value, [-100, 0], [1, 0.7]),
+        },
+      ],
+    }));
+
+    if (type === "remaining") return null;
+
+    const refArray =
+      type === "spent"
+        ? spentSwipeableRefs.current
+        : plannedSwipeableRefs.current;
 
     return (
       <Reanimated.View
@@ -108,26 +116,23 @@ const CustomCard = ({
             setItemType(type);
             setModalType("custom");
             handleEdit(item);
-            if (swipeableRefs.current[index])
-              swipeableRefs.current[index].close();
+
             if (type === "spent") {
               const plannedCategories = Object.keys(card?.items?.planned ?? {});
               setCategories(plannedCategories);
             }
+
+            if (refArray[index]) refArray[index].close();
           }}
         >
           <AntDesign name="edit" size={20} color="#fefefe" />
         </Pressable>
+
         <Pressable
           style={{ marginLeft: 10 }}
           onPress={() => {
-            const path =
-              type === "spent"
-                ? `budget.custom.cards.${card.id}.spent`
-                : `budget.custom.cards.${card.id}.planned`;
-            removeItem(path, item.id);
-            if (swipeableRefs.current[index])
-              swipeableRefs.current[index].close();
+            removeItem(card.id, item, { entryType: type });
+            if (refArray[index]) refArray[index].close();
           }}
         >
           <EvilIcons name="trash" size={28} color="#FF5A5F" />
@@ -140,7 +145,7 @@ const CustomCard = ({
     const type = route.key;
 
     const filteredItems =
-      type === "plan"
+      type === "planned"
         ? parsedItems
         : type === "spent"
         ? card.items.spent ?? []
@@ -149,7 +154,7 @@ const CustomCard = ({
     const renderItems = () =>
       filteredItems.map((item, index) => {
         const value =
-          type === "plan"
+          type === "planned"
             ? item.planned
             : type === "spent"
             ? item.amount
@@ -158,55 +163,92 @@ const CustomCard = ({
         const label = type === "spent" ? item.name || item.category : item.name;
         const id = item.id;
 
+        // 🛑 Disable swipeable on "remaining"
+        if (type === "remaining") {
+          return (
+            <AnimatedRow
+              key={id}
+              label={label}
+              value={formatCurrency(value)}
+              style={styles.cardBodyContent}
+              textStyle={styles.cardItem}
+            />
+          );
+        }
+
         return (
           <Swipeable
-            key={id}
+            key={item.id}
             renderRightActions={(progress, dragX) =>
               RightAction(progress, dragX, item, index, type)
             }
-            dragOffsetFromLeftEdge={20}
-            onSwipeableWillOpen={() => {
-              if (
-                openSwipeableIndexRef.current !== null &&
-                openSwipeableIndexRef.current !== index &&
-                swipeableRefs.current[openSwipeableIndexRef.current]
-              ) {
-                swipeableRefs.current[openSwipeableIndexRef.current].close();
+            ref={(ref) => {
+              const refArray =
+                type === "spent"
+                  ? spentSwipeableRefs.current
+                  : plannedSwipeableRefs.current;
+              if (ref && ref !== refArray[index]) {
+                refArray[index] = ref;
               }
-              openSwipeableIndexRef.current = index;
+            }}
+            onSwipeableWillOpen={() => {
+              const refArray =
+                type === "spent"
+                  ? spentSwipeableRefs.current
+                  : plannedSwipeableRefs.current;
+              const openIndexRef =
+                type === "spent" ? openSpentIndexRef : openPlannedIndexRef;
+
+              if (
+                openIndexRef.current !== null &&
+                openIndexRef.current !== index &&
+                refArray[openIndexRef.current]
+              ) {
+                refArray[openIndexRef.current].close();
+              }
+
+              openIndexRef.current = index;
+
+              setTimeout(() => {
+                if (refArray[index] && refArray[index]?.close) {
+                  refArray[index].close();
+                  openIndexRef.current = null;
+                }
+              }, 4000);
             }}
             onSwipeableWillClose={() => {
-              if (openSwipeableIndexRef.current === index) {
-                openSwipeableIndexRef.current = null;
+              const openIndexRef =
+                type === "spent" ? openSpentIndexRef : openPlannedIndexRef;
+
+              if (openIndexRef.current === index) {
+                openIndexRef.current = null;
               }
             }}
-            ref={(ref) => (swipeableRefs.current[index] = ref)}
           >
-            <View style={styles.cardBodyContent}>
-              <Text style={styles.cardItem}>{label}</Text>
-              <Text style={styles.cardItem}>{formatCurrency(value)}</Text>
-            </View>
+            <AnimatedRow>
+              <View style={styles.cardBodyContent}>
+                <Text style={styles.cardItem}>{item.name}</Text>
+                <Text style={styles.cardItem}>{formatCurrency(value)}</Text>
+              </View>
+            </AnimatedRow>
           </Swipeable>
         );
       });
 
     const total =
-      type === "plan"
+      type === "planned"
         ? parsedItems.reduce((sum, i) => sum + i.planned, 0)
         : type === "spent"
         ? (card.items.spent ?? []).reduce((sum, s) => sum + s.amount, 0)
         : parsedItems.reduce((sum, i) => sum + i.remaining, 0);
 
     return (
-      <View style={{ flex: 1 }}>
+      <View>
         {filteredItems.length > 0 ? (
           <>
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ paddingBottom: 10 }}
-            >
+            <View style={{ flexGrow: 1 }}>
               <View style={styles.cardBody}>{renderItems()}</View>
-            </ScrollView>
+            </View>
             <View style={styles.dividerFooter} />
             <View style={styles.foot}>
               <View style={styles.cardBodyContent}>
@@ -225,12 +267,7 @@ const CustomCard = ({
                       setCurrentCardId(card.id);
                       setItemType(type);
                       setItemFormType(type === "spent" ? "spent" : "planned");
-                      if (type === "spent") {
-                        const plannedCategories = Object.keys(
-                          card?.items?.planned ?? {}
-                        );
-                        setCategories(plannedCategories);
-                      }
+                      setCategories(Object.keys(card.items.planned));
                     }}
                   >
                     <AntDesign name="plus" size={18} color="#BA9731" />
@@ -241,21 +278,35 @@ const CustomCard = ({
             </View>
           </>
         ) : (
-          <View style={{ flex: 1, justifyContent: "flex-end", padding: 10 }}>
-            <View style={{ alignItems: "flex-end" }}>
-              <Pressable
-                style={styles.button}
-                onPress={() => {
-                  setModalVisible(true);
-                  setModalType("custom");
-                  setCurrentCardId(card.id);
-                  setItemType(type);
-                }}
-              >
-                <AntDesign name="plus" size={18} color="#BA9731" />
-                <Text style={styles.buttonText}>Add</Text>
-              </Pressable>
-            </View>
+          <View
+            style={{
+              paddingVertical: 20,
+              minHeight: 120,
+            }}
+          >
+            <Text
+              style={{ color: "#888", fontStyle: "italic", marginBottom: 10 }}
+            >
+              No items yet
+            </Text>
+            {type !== "remaining" && (
+              <View style={styles.cardBodyAction}>
+                <Pressable
+                  style={styles.button}
+                  onPress={() => {
+                    setModalVisible(true);
+                    setModalType("custom");
+                    setCurrentCardId(card.id);
+                    setItemType(type);
+                    setItemFormType(type === "spent" ? "spent" : "planned");
+                    setCategories(Object.keys(card.items.planned));
+                  }}
+                >
+                  <AntDesign name="plus" size={18} color="#BA9731" />
+                  <Text style={styles.buttonText}>Add</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         )}
       </View>
@@ -282,9 +333,14 @@ const CustomCard = ({
             </Menu>
             <View style={styles.badge}>
               <Text
-                style={{ color: "#BA9731", fontSize: 12, textAlign: "center" }}
+                style={{
+                  color: "#BA9731",
+                  fontSize: 13,
+                  fontWeight: "bold",
+                  textAlign: "center",
+                }}
               >
-                CUSTOM
+                {card.type.toUpperCase()}
               </Text>
             </View>
             <Pressable onPress={() => removeCard(card.id, card.type)}>
@@ -298,7 +354,11 @@ const CustomCard = ({
         </View>
       </View>
 
-      <View style={hasContent ? { height: 300 } : { minHeight: 150 }}>
+      <View
+        style={
+          hasContent ? { minHeight: 300, flexGrow: 1 } : { minHeight: 150 }
+        }
+      >
         <TabView
           navigationState={{ index, routes }}
           renderScene={renderScene}
