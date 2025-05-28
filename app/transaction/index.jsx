@@ -25,35 +25,14 @@ import Reanimated, {
 import { restoreItemFromLog } from "../../utilities/store";
 import { showToast } from "../../utilities/toast";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { use } from "react";
+import { InteractionManager } from "react-native";
+import ItemsInputModal from "../../components/ItemsInputModal";
+import { getDoc, doc, updateDoc } from "firebase/firestore";
+import { db } from "../../utilities/firebaseConfig";
+import { updateItemInDoc } from "../../utilities/store";
 
 const App = () => {
-  const { month } = useLocalSearchParams();
-  const navigation = useNavigation();
-  const { userInfo } = useUser();
-  const userEmail = userInfo.email;
-  const [logs, setLogs] = useState([]);
-  const [formattedLogs, setFormattedLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showSearch, setShowSearch] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState("ALL");
-  const [typeFilter, setTypeFilter] = useState("ALL");
-  const [currentDocId, setCurrentDocId] = useState(null);
-
-  const monthScrollRef = useRef(null);
-  const monthRefs = useRef({});
-  const openSwipeRef = useRef(null);
-
-  const loadCurrentDocId = async () => {
-    const currentDocId = await AsyncStorage.getItem("currentUserDocId");
-    if (currentDocId) {
-      setCurrentDocId(currentDocId);
-    } else {
-      console.error("No currentDocId found in AsyncStorage");
-    }
-  };
-
+  const { month: paramMonth } = useLocalSearchParams();
   const months = [
     "ALL",
     "JAN",
@@ -70,6 +49,56 @@ const App = () => {
     "DEC",
   ];
 
+  const isValidMonth = months.includes(paramMonth?.toUpperCase?.());
+  const defaultMonth = "ALL";
+
+  const [selectedMonth, setSelectedMonth] = useState(
+    isValidMonth ? paramMonth.toUpperCase() : defaultMonth
+  );
+
+  const navigation = useNavigation();
+  const { userInfo } = useUser();
+  const userEmail = userInfo.email;
+  const [logs, setLogs] = useState([]);
+  const [formattedLogs, setFormattedLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("ALL");
+  const [currentDocId, setCurrentDocId] = useState(null);
+  const [cardId, setCardId] = useState(null);
+
+  const monthScrollRef = useRef(null);
+  const monthRefs = useRef({});
+  const openSwipeRef = useRef(null);
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [availableCategories, setAvailableCategories] = useState([]);
+  const [modalType, setModalType] = useState(""); // e.g., "custom", "standard", "asset"
+  const [itemFormType, setItemFormType] = useState(""); // "planned" | "spent"
+  const [subType, setSubType] = useState("");
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const [networth, setnetworth] = useState("");
+  const [planned, setPlanned] = useState("");
+  const [spent, setSpent] = useState("");
+  const [errors, setErrors] = useState({});
+  const [modalEditMode, setModalEditMode] = useState(false);
+  const [section, setSection] = useState("");
+
+  const loadCurrentDocId = async () => {
+    const currentDocId = JSON.parse(
+      await AsyncStorage.getItem("currentUserDocId")
+    );
+
+    if (currentDocId) {
+      setCurrentDocId(currentDocId);
+    } else {
+      console.error("No currentDocId found in AsyncStorage");
+    }
+  };
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
@@ -81,25 +110,26 @@ const App = () => {
   }, [navigation]);
 
   useEffect(() => {
-    if (month) {
-      const upper = month.toUpperCase();
-      if (months.includes(upper)) {
-        setSelectedMonth(upper);
-      }
+    if (isValidMonth) {
+      setSelectedMonth(paramMonth.toUpperCase());
     }
-  }, [month]);
+  }, [paramMonth]);
 
   useEffect(() => {
-    const selectedRef = monthRefs.current[selectedMonth];
-    if (selectedRef && monthScrollRef.current) {
-      selectedRef.measureLayout(
-        monthScrollRef.current,
-        (x) => {
-          monthScrollRef.current.scrollTo({ x: x - 16, animated: true });
-        },
-        (err) => console.warn("measureLayout error:", err)
-      );
-    }
+    const task = InteractionManager.runAfterInteractions(() => {
+      const selectedRef = monthRefs.current[selectedMonth];
+      if (selectedRef && monthScrollRef.current) {
+        selectedRef.measureLayout(
+          monthScrollRef.current,
+          (x) => {
+            monthScrollRef.current.scrollTo({ x: x - 16, animated: true });
+          },
+          (err) => console.warn("measureLayout error:", err)
+        );
+      }
+    });
+
+    return () => task.cancel();
   }, [selectedMonth]);
 
   const loadTransactionLogs = async () => {
@@ -151,7 +181,7 @@ const App = () => {
       item?.networth,
     ];
     for (const val of fields) {
-      if (typeof val === "number" && !isNaN(val)) {
+      if (typeof val === "number" && !isNaN(val) && val !== 0) {
         return val;
       }
     }
@@ -164,9 +194,8 @@ const App = () => {
       return;
     }
 
-    // Step 1: Flatten logs
     let flattened = logs
-      .filter((log) => !log.restored)
+      .filter((log) => !log.restored && !log.edited)
       .map((log) => {
         if (!log?.item || !log.timestamp?.seconds) return null;
 
@@ -189,29 +218,39 @@ const App = () => {
             log.type === "added" ? "+" : log.type === "removed" ? "-" : ""
           }${currencyFormatter.format(getValidAmount(log.item))}`,
           status: capitalize(log.type),
+          originalLog: log, // 👈 necessary for handleEditFromLog
         };
       })
       .filter(Boolean);
 
+    // ✅ Apply type filter globally
     if (typeFilter !== "ALL") {
       flattened = flattened.filter(
         (item) => item.type?.toLowerCase() === typeFilter.toLowerCase()
       );
     }
 
+    // ✅ Apply month filter only if not "ALL"
     if (selectedMonth !== "ALL") {
+      const normalizedMonth = selectedMonth.toUpperCase();
       flattened = flattened.filter((item) => {
         const [month] = item.date.split(" ");
-        return month.toUpperCase() === selectedMonth;
+        return month.toUpperCase() === normalizedMonth;
       });
     }
 
+    // ✅ Apply search globally
     if (searchQuery.trim() !== "") {
+      const query = searchQuery.trim().toLowerCase();
       flattened = flattened.filter((item) =>
-        item.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
+        item.name.toLowerCase().includes(query)
       );
     }
 
+    // ✅ Always sort by timestamp (latest first)
+    flattened = flattened.sort((a, b) => b.timestamp - a.timestamp);
+
+    // ✅ Group by date for SectionList
     const groupedMap = {};
     flattened.forEach((item) => {
       const dateKey = item.date;
@@ -272,31 +311,169 @@ const App = () => {
       .replace("Custom Budget", "Custom")
       .replace("Discretionary Budget", "Discretionary")
       .replace("Non-Discretionary", "Non-Disc.")
-      .replace("Planned ", "Planned: ")
-      .replace("Spent ", "Spent: ")
       .replace("Net Worth ", "");
+  };
+
+  const handleSave = async () => {
+    if (!editingItem) {
+      showToast("No item to update. Cannot save.", "error");
+      return;
+    }
+
+    const trimmedName = name.trim();
+    const trimmedCategory = category?.trim();
+    const isAssetOrLiability =
+      modalType === "asset" || modalType === "liability";
+    const isPlanned = itemFormType === "planned";
+    const isSpent = itemFormType === "spent";
+
+    const validationErrors = {};
+    if (!trimmedName) validationErrors.name = "Name is required.";
+    if (isSpent && !trimmedCategory)
+      validationErrors.category = "Category is required.";
+    if (
+      isAssetOrLiability &&
+      (isNaN(parseFloat(networth)) || parseFloat(networth) <= 0)
+    )
+      validationErrors.networth = "Valid amount is required.";
+    if (isPlanned && (isNaN(parseFloat(planned)) || parseFloat(planned) <= 0))
+      validationErrors.planned = "Valid amount is required.";
+    if (isSpent && (isNaN(parseFloat(spent)) || parseFloat(spent) <= 0))
+      validationErrors.spent = "Valid amount is required.";
+
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      return;
+    }
+
+    const updatedItem = {
+      id: editingItem.id,
+      name: trimmedName,
+      ...(isAssetOrLiability && { networth: parseFloat(networth) }),
+      ...(isPlanned && { planned: parseFloat(planned) }),
+      ...(isSpent && {
+        amount: parseFloat(spent),
+        category: trimmedCategory,
+      }),
+      timestamp: new Date().toISOString(),
+      entryType: itemFormType,
+    };
+    console.log("Updated item:", updatedItem);
+
+    try {
+      await updateItemInDoc({
+        docId: currentDocId,
+        rootKey:
+          modalType === "asset" || modalType === "liability"
+            ? "networth"
+            : "budget",
+        cardType: modalType,
+        cardId,
+        itemId: editingItem.id,
+        updatedItem,
+        section: modalType === "standard" ? section : null,
+        subType: isAssetOrLiability ? subType : null,
+      });
+
+      if (editingItem.logId) {
+        await updateDoc(
+          doc(db, "transactionLogs", userEmail, "logs", editingItem.logId),
+          {
+            edited: true,
+            editedAt: new Date().toISOString(),
+          }
+        );
+      }
+
+      showToast("Item updated successfully!", "success");
+      setModalVisible(false);
+      setEditingItem(null);
+      setCardId(null);
+      setErrors({});
+      setName("");
+      setCategory("");
+      setPlanned("");
+      setSpent("");
+      setnetworth("");
+      loadTransactionLogs();
+    } catch (err) {
+      console.error("🔥 Failed to update item:", err);
+      showToast("Failed to update item.", "error");
+    }
   };
 
   const handleRestore = async (logItem) => {
     try {
       await restoreItemFromLog(currentDocId, logItem.id, userEmail);
-      showToast("Item restored successfully", "success");
       loadTransactionLogs();
     } catch (err) {
       showToast("Failed to restore item", "error");
     }
   };
 
-  const handleEditFromLog = (item) => {
-    const { cardId, cardType, entryType, item: itemData, section } = item;
+  const handleEditFromLog = async (logItem) => {
+    const { cardId, cardType, section, item, entryType, categoryType } =
+      logItem;
+    console.log("Editing item from log:", logItem);
 
-    setModalType(cardType); // "custom" or "standard"
-    setItemFormType(entryType);
-    setItemType(section || entryType); // for standard
-    setCurrentCardId(cardId);
-    setCurrentEditedItem(itemData);
-    setModalEditMode(true);
-    setModalVisible(true);
+    try {
+      const userDocRef = doc(db, "budgetData", currentDocId);
+      console.log(currentDocId);
+
+      const userDocSnap = await getDoc(userDocRef);
+      if (!userDocSnap.exists()) {
+        console.log("❌ Document does not exist at:", currentDocId);
+        return;
+      } else console.log("Document exists at:", currentDocId);
+
+      const data = userDocSnap.data();
+      console.log("Fetched data:", data);
+
+      // ✅ Step 1: Check if card exists
+      let cardExists = false;
+
+      if (cardType === "custom") {
+        cardExists = !!data?.budget?.custom?.cards?.[cardId];
+      } else if (cardType === "standard") {
+        cardExists = !!data?.budget?.standard?.cards?.[cardId];
+      } else if (cardType === "asset" || cardType === "liability") {
+        cardExists = !!data?.networth?.[cardType]?.cards?.[cardId];
+      } else {
+        console.warn("Unknown cardType:", cardType);
+      }
+
+      if (!cardExists) {
+        showToast("The card for this item no longer exists.", "warning");
+        return;
+      }
+
+      // ✅ Step 2: Get available categories if entryType is "spent"
+      let categories = [];
+      if (entryType === "spent") {
+        if (cardType === "custom") {
+          categories = Object.keys(
+            data?.budget?.custom?.cards?.[cardId]?.items?.planned || {}
+          );
+        } else if (cardType === "standard") {
+          categories = Object.keys(
+            data?.budget?.standard?.cards?.[cardId]?.[section]?.planned || {}
+          );
+        }
+      }
+
+      // ✅ Step 3: Open modal with values
+      setEditingItem({ ...item, logId: logItem.id });
+      setSubType(categoryType);
+      setSection(section);
+      setCardId(cardId);
+      setAvailableCategories(categories);
+      setModalType(cardType);
+      setItemFormType(entryType);
+      setModalVisible(true);
+    } catch (error) {
+      console.error("Error in handleEditFromLog:", error);
+      showToast("Failed to open edit modal.", "error");
+    }
   };
 
   const renderRightActions = (item, progress, dragX) => {
@@ -338,7 +515,9 @@ const App = () => {
       >
         <Pressable
           onPress={() => {
-            isRemoved ? handleRestore(item) : handleEditFromLog(item);
+            isRemoved
+              ? handleRestore(item)
+              : handleEditFromLog(item.originalLog);
             if (openSwipeRef.current) {
               openSwipeRef.current.close();
             }
@@ -494,13 +673,23 @@ const App = () => {
                 </TouchableOpacity>
               )}
             </View>
+            <TouchableOpacity
+              onPress={() => {
+                setSearchQuery("");
+                setShowSearch(false);
+              }}
+              style={styles.cancelButton}
+            >
+              <Text style={styles.cancelButtonText}>CANCEL</Text>
+            </TouchableOpacity>
           </View>
         )}
 
         {loading ? (
           <ShimmerLoader rows={6} />
-        ) : formattedLogs.length !== 0 ? (
+        ) : (
           <>
+            {/* Always show filter buttons */}
             <View
               style={{
                 flexDirection: "row",
@@ -531,30 +720,56 @@ const App = () => {
               )}
             </View>
 
-            <SectionList
-              sections={formattedLogs}
-              keyExtractor={(item, index) =>
-                item?.id || `${item.name}-${index}`
-              }
-              renderItem={renderItem}
-              renderSectionHeader={({ section: { title } }) => (
-                <Text style={styles.sectionHeader}>{title}</Text>
-              )}
-              style={{ width: "100%", flex: 1 }}
-              refreshing={loading}
-              onRefresh={loadTransactionLogs}
-              initialNumToRender={25}
-            />
+            {/* Conditional section list or empty state */}
+            {formattedLogs.length !== 0 ? (
+              <SectionList
+                sections={formattedLogs}
+                keyExtractor={(item, index) =>
+                  item?.id || `${item.name}-${index}`
+                }
+                renderItem={renderItem}
+                renderSectionHeader={({ section: { title } }) => (
+                  <Text style={styles.sectionHeader}>{title}</Text>
+                )}
+                style={{ width: "100%", flex: 1 }}
+                refreshing={loading}
+                onRefresh={loadTransactionLogs}
+                initialNumToRender={25}
+              />
+            ) : (
+              <View style={{ marginTop: 40, alignItems: "center" }}>
+                <AntDesign name="inbox" size={32} color="#555" />
+                <Text style={{ color: "#999", marginTop: 8 }}>
+                  No transactions found for {selectedMonth}.
+                </Text>
+              </View>
+            )}
           </>
-        ) : (
-          <View style={{ marginTop: 40, alignItems: "center" }}>
-            <AntDesign name="inbox" size={32} color="#555" />
-            <Text style={{ color: "#999", marginTop: 8 }}>
-              No transactions found for {selectedMonth}.
-            </Text>
-          </View>
         )}
       </View>
+
+      <ItemsInputModal
+        modalVisible={modalVisible}
+        setModalVisible={setModalVisible}
+        name={name}
+        setName={setName}
+        category={category}
+        setCategory={setCategory}
+        networth={networth}
+        setnetworth={setnetworth}
+        planned={planned}
+        setPlanned={setPlanned}
+        spent={spent}
+        setSpent={setSpent}
+        handleSave={handleSave}
+        errors={errors}
+        setErrors={setErrors}
+        modalType={modalType}
+        itemFormType={itemFormType}
+        categories={availableCategories}
+        editingItem={editingItem}
+        setModalEditMode={setModalEditMode}
+      />
     </View>
   );
 };
@@ -677,6 +892,21 @@ const styles = StyleSheet.create({
   cancelText: {
     color: "#fefefe",
     fontSize: 14,
+  },
+  cancelButton: {
+    backgroundColor: "#BA9731",
+    borderRadius: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    justifyContent: "center",
+    marginLeft: 10,
+    height: 50,
+  },
+
+  cancelButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });
 

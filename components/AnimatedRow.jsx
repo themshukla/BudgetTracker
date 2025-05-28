@@ -1,4 +1,3 @@
-import React from "react";
 import { View } from "react-native";
 import Animated, {
   FadeInUp,
@@ -12,7 +11,7 @@ const AnimatedRow = ({ label, value, children, style, textStyle }) => {
     <Animated.View
       entering={FadeInUp.duration(450)}
       exiting={FadeOut.duration(400)}
-      layoutTransition={LinearTransition.springify()}
+      layout={LinearTransition.springify()}
     >
       {children ? (
         children

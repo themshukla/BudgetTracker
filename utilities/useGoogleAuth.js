@@ -36,117 +36,21 @@ export const useGoogleAuth = () => {
 
         budget: {
           custom: {
-            cards: {
-              "monthly-budget": {
-                id: "monthly-budget",
-                type: "custom",
-                items: {
-                  planned: {
-                    groceries: { id: "groceries", planned: 300 },
-                    transport: { id: "transport", planned: 150 },
-                    rent: { id: "rent", planned: 1200 },
-                  },
-                  spent: [
-                    {
-                      id: "s1",
-                      category: "groceries",
-                      amount: 75,
-                      name: "Sams Club",
-                    },
-                    {
-                      id: "s2",
-                      category: "transport",
-                      amount: 40,
-                      name: "Uber",
-                    },
-                    {
-                      id: "s3",
-                      category: "rent",
-                      amount: 1200,
-                      name: "Landlord",
-                    },
-                  ],
-                },
-              },
-            },
+            cards: {},
           },
 
           standard: {
-            cards: {
-              "weekly-budget": {
-                id: "weekly-budget",
-                type: "standard",
-                discretionaryItems: {
-                  planned: {
-                    fuel: { id: "fuel", planned: 60 },
-                    snacks: { id: "snacks", planned: 50 },
-                  },
-                  spent: [
-                    { id: "s4", category: "fuel", amount: 30, name: "Shell" },
-                    {
-                      id: "s5",
-                      category: "snacks",
-                      amount: 20,
-                      name: "7-Eleven",
-                    },
-                  ],
-                },
-                nonDiscretionaryItems: {
-                  planned: {
-                    groceries: { id: "groceries", planned: 300 },
-                    transport: { id: "transport", planned: 150 },
-                  },
-                  spent: [
-                    {
-                      id: "s6",
-                      category: "groceries",
-                      amount: 75,
-                      name: "Sams Club",
-                    },
-                    {
-                      id: "s7",
-                      category: "transport",
-                      amount: 40,
-                      name: "Uber",
-                    },
-                  ],
-                },
-              },
-            },
+            cards: {},
           },
         },
 
         networth: {
           asset: {
-            cards: {
-              "personal-assets": {
-                id: "personal-assets",
-                type: "asset",
-                items: {
-                  normal: [
-                    { id: "a1", name: "Phone", networth: 800 },
-                    { id: "a2", name: "Laptop", networth: 1200 },
-                  ],
-                  fixed: [
-                    { id: "a3", name: "Car", networth: 15000 },
-                    { id: "a4", name: "House", networth: 20000 },
-                  ],
-                },
-              },
-            },
+            cards: {},
           },
 
           liability: {
-            cards: {
-              "personal-liabilities": {
-                id: "personal-liabilities",
-                type: "liability",
-                items: {
-                  normal: [{ id: "l1", name: "Credit Card", networth: 3000 }],
-                  longTerm: [{ id: "l2", name: "Car Loan", networth: 10000 }],
-                },
-              },
-            },
+            cards: {},
           },
         },
       });
@@ -178,7 +82,6 @@ export const useGoogleAuth = () => {
       }
     }
 
-    // ✅ Store in context and AsyncStorage
     const enhancedUserData = { ...userData, docId };
     updateUserInfo(enhancedUserData);
     await AsyncStorage.setItem("userInfo", JSON.stringify(enhancedUserData));

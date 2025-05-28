@@ -163,7 +163,6 @@ const CustomCard = ({
         const label = type === "spent" ? item.name || item.category : item.name;
         const id = item.id;
 
-        // 🛑 Disable swipeable on "remaining"
         if (type === "remaining") {
           return (
             <AnimatedRow

@@ -17,6 +17,7 @@ import {
 } from "react-native-popup-menu";
 import { formatCurrency } from "../utilities/formartCurrency";
 import { TabView, SceneMap, TabBar } from "react-native-tab-view";
+import AnimatedRow from "../components/AnimatedRow";
 
 const LiabilityCard = ({
   card,
@@ -97,6 +98,7 @@ const LiabilityCard = ({
           style={{ marginLeft: 10 }}
           onPress={() => {
             removeItem(card.id, item);
+
             if (refArray[index]) refArray[index].close();
           }}
         >
@@ -134,10 +136,14 @@ const LiabilityCard = ({
           }}
           ref={(ref) => (refArray[index] = ref)}
         >
-          <View style={styles.cardBodyContent}>
-            <Text style={styles.cardItem}>{item.name}</Text>
-            <Text style={styles.cardItem}>{formatCurrency(item.networth)}</Text>
-          </View>
+          <AnimatedRow>
+            <View style={styles.cardBodyContent}>
+              <Text style={styles.cardItem}>{item.name}</Text>
+              <Text style={styles.cardItem}>
+                {formatCurrency(item.networth)}
+              </Text>
+            </View>
+          </AnimatedRow>
         </Swipeable>
       ))}
     </>
@@ -151,8 +157,6 @@ const LiabilityCard = ({
         ? normalSwipeableRefs.current
         : longTermSwipeableRefs.current;
     const total = type === "normal" ? card.totalNormal : card.totalLongTerm;
-    // const headerTitle =
-    //   type === "normal" ? "Liabilities" : "Longterm Liabilities";
 
     if (!items.length) {
       return (

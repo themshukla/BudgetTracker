@@ -2,12 +2,11 @@
 
 import { StatusBar } from "expo-status-bar";
 import { Button, View, Image, SafeAreaView } from "react-native";
-import styles from "../../utilities/styles";
-import Text from "../../components/Text";
+import styles from "../../../utilities/styles";
+import Text from "../../../components/Text";
 import { GoogleSigninButton } from "@react-native-google-signin/google-signin";
-import { useEffect, useState } from "react";
-import { useGoogleAuth } from "../../utilities/useGoogleAuth"; // Importing the custom hook
-import { useUser } from "../../utilities/userProvider"; // Importing the user context
+import { useGoogleAuth } from "../../../utilities/useGoogleAuth";
+import { useUser } from "../../../utilities/userProvider";
 
 const UserAccount = () => {
   const { signin, logout } = useGoogleAuth(); // Using the hook
@@ -27,7 +26,7 @@ const UserAccount = () => {
               source={
                 userInfo.photo
                   ? { uri: userInfo.photo }
-                  : require("../../assets/images/userIcon.png") // your static fallback icon
+                  : require("../../../assets/images/userIcon.png")
               }
               style={styles.profilePicture}
             />

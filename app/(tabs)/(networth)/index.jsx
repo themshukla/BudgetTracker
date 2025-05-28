@@ -6,7 +6,7 @@ import {
   Platform,
   Keyboard,
 } from "react-native";
-import React, { useState, useEffect, useLayoutEffect } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import Header from "../../../components/Header";
 import styles from "../../../utilities/styles";
 import AssetCard from "../../../components/AssetCard";
@@ -29,6 +29,8 @@ import { showToast } from "../../../utilities/toast";
 import Spinner from "../../../utilities/spinner";
 import AddCardGrid from "../../../utilities/addCardGrid";
 import { FontAwesome5, MaterialCommunityIcons } from "@expo/vector-icons";
+import CardWrapper from "../../../components/CardWrapper";
+import { use } from "react";
 
 const Networth = () => {
   const [cards, setCards] = useState([]);
@@ -54,6 +56,9 @@ const Networth = () => {
 
   const navigation = useNavigation();
   const { userEmail, isLoggedIn } = useUser();
+  const [removingCardId, setRemovingCardId] = useState(null);
+  const flatListRef = useRef(null);
+  const [newlyAddedCardId, setNewlyAddedCardId] = useState(null);
 
   const networthCardTypes = [
     {
@@ -105,7 +110,6 @@ const Networth = () => {
         const data = await fetchBudgetDataForUser(userEmail);
         setCurrentDocId(data[0].id);
         const transformedData = formatBudgetData(data[0]);
-        console.log("Transformed Data:", transformedData);
         setCards(transformedData);
       } catch (err) {
         console.log(err);
@@ -123,7 +127,7 @@ const Networth = () => {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (cardChanges.length > 5) {
+      if (cardChanges.length > 0) {
         storeTransactionLog(userEmail, cardChanges);
         setCardChanges([]);
       }
@@ -281,11 +285,15 @@ const Networth = () => {
   };
 
   const removeItem = async (cardId, item) => {
+    console.log("removeItem", cardId, item);
+
     const currentCard = cards.find((card) => card.id === cardId);
     if (!currentCard) {
       console.warn("Card not found");
       return;
     }
+
+    console.log("currentCard", currentCard);
 
     const cardType = currentCard.type;
     let itemToRemove = null;
@@ -444,8 +452,9 @@ const Networth = () => {
   };
 
   const addCard = async (cardType) => {
+    const newCardId = uuid.v4();
     const newCard = {
-      id: uuid.v4(),
+      id: newCardId,
       income: "",
       type: cardType,
       items:
@@ -455,14 +464,22 @@ const Networth = () => {
     };
 
     setCards([...cards, newCard]);
+    setNewlyAddedCardId(newCardId);
     await addCardToFirestore(newCard, currentDocId, cardType);
     showToast("Card added successfully!", "success");
   };
 
   const removeCard = (id, type) => {
-    setCards(cards.filter((card) => card.id !== id));
+    setRemovingCardId(id);
     removeCardFromFirestore(currentDocId, type, id);
+  };
+
+  const finalizeCardRemoval = (id) => {
+    console.log("Finalizing removal for card ID:", id);
+
+    setCards((prev) => prev.filter((card) => card.id !== id));
     showToast("Card removed successfully!", "success");
+    setRemovingCardId(null);
   };
 
   const updateIncome = (id, value) => {
@@ -494,6 +511,7 @@ const Networth = () => {
             />
           ) : (
             <FlatList
+              ref={flatListRef}
               style={styles.scrollView}
               data={cards}
               keyExtractor={(item) => item.id.toString()}
@@ -501,37 +519,71 @@ const Networth = () => {
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) =>
                 item.type === "asset" ? (
-                  <AssetCard
-                    card={item}
-                    addCard={addCard}
-                    updateIncome={updateIncome}
-                    removeCard={removeCard}
-                    addItem={addItem}
-                    removeItem={removeItem}
-                    setCurrentCardId={setCurrentCardId}
-                    setModalVisible={setModalVisible}
-                    setModalType={setModalType}
-                    setItemType={setItemType}
-                    itemType={itemType}
-                    handleEdit={handleEdit}
-                    setCurrentCardType={setCurrentCardType}
-                  />
+                  <CardWrapper
+                    key={item.id}
+                    cardId={item.id}
+                    isRemoving={removingCardId === item.id}
+                    onExitComplete={finalizeCardRemoval}
+                    onEnterComplete={() => {
+                      if (item.id === newlyAddedCardId) {
+                        const index = cards.findIndex((c) => c.id === item.id);
+                        flatListRef.current?.scrollToIndex({
+                          index,
+                          animated: true,
+                        });
+                        setNewlyAddedCardId(null); // reset
+                      }
+                    }}
+                  >
+                    <AssetCard
+                      card={item}
+                      addCard={addCard}
+                      updateIncome={updateIncome}
+                      removeCard={removeCard}
+                      addItem={addItem}
+                      removeItem={removeItem}
+                      setCurrentCardId={setCurrentCardId}
+                      setModalVisible={setModalVisible}
+                      setModalType={setModalType}
+                      setItemType={setItemType}
+                      itemType={itemType}
+                      handleEdit={handleEdit}
+                      setCurrentCardType={setCurrentCardType}
+                    />
+                  </CardWrapper>
                 ) : (
-                  <LiabilityCard
-                    card={item}
-                    addCard={addCard}
-                    updateIncome={updateIncome}
-                    removeCard={removeCard}
-                    addItem={addItem}
-                    removeItem={removeItem}
-                    setCurrentCardId={setCurrentCardId}
-                    setModalVisible={setModalVisible}
-                    setModalType={setModalType}
-                    setItemType={setItemType}
-                    handleEdit={handleEdit}
-                    setCurrentCardType={setCurrentCardType}
-                    itemType={itemType}
-                  />
+                  <CardWrapper
+                    key={item.id}
+                    cardId={item.id}
+                    isRemoving={removingCardId === item.id}
+                    onExitComplete={finalizeCardRemoval}
+                    onEnterComplete={() => {
+                      if (item.id === newlyAddedCardId) {
+                        const index = cards.findIndex((c) => c.id === item.id);
+                        flatListRef.current?.scrollToIndex({
+                          index,
+                          animated: true,
+                        });
+                        setNewlyAddedCardId(null); // reset
+                      }
+                    }}
+                  >
+                    <LiabilityCard
+                      card={item}
+                      addCard={addCard}
+                      updateIncome={updateIncome}
+                      removeCard={removeCard}
+                      addItem={addItem}
+                      removeItem={removeItem}
+                      setCurrentCardId={setCurrentCardId}
+                      setModalVisible={setModalVisible}
+                      setModalType={setModalType}
+                      setItemType={setItemType}
+                      handleEdit={handleEdit}
+                      setCurrentCardType={setCurrentCardType}
+                      itemType={itemType}
+                    />
+                  </CardWrapper>
                 )
               }
             />

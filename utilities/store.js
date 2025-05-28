@@ -123,7 +123,7 @@ const updateDocumentForUser = async (userEmail, docId, updatedData) => {
       const docRef = querySnapshot.docs[0]; // Get the first match (should only be one)
       await updateDoc(docRef.ref, updatedData);
     } else {
-      console.log("Document not found or doesn't belong to the user.");
+      showToast("Document not found or doesn't belong to the user.", "error");
     }
   } catch (error) {
     console.error("Error updating document:", error);
@@ -266,8 +266,6 @@ const addCardToFirestore = async (newCard, docId, cardType) => {
 };
 
 const removeCardFromFirestore = async (docId, cardType, cardId) => {
-  console.log(docId, cardType, cardId);
-
   try {
     const docRef = doc(db, "budgetData", docId);
 
@@ -323,8 +321,6 @@ const storeTransactionLog = async (userEmail, transactionData) => {
       );
       await setDoc(logRef, tx);
     }
-
-    console.log("✅ Transaction logs stored in subcollection.");
   } catch (error) {
     console.error("❌ Error storing transaction logs:", error);
   }
@@ -355,8 +351,8 @@ const updateItemInDoc = async (data) => {
     cardId,
     itemId,
     updatedItem,
-    section, // discretionaryItems, nonDiscretionaryItems, or null
-    subType, // normal or fixed (for asset/liability only)
+    section,
+    subType,
   } = data;
 
   try {
@@ -447,6 +443,8 @@ const updateItemInDoc = async (data) => {
 
     // 🔹 Net Worth Card (Asset / Liability)
     else if (cardType === "asset" || cardType === "liability") {
+      console.log("Updating net worth item...", data);
+
       const items = card?.items?.[subType] ?? [];
 
       const updatedArray = items.map((item) =>
@@ -458,6 +456,7 @@ const updateItemInDoc = async (data) => {
             }
           : item
       );
+      console.log(updatedArray);
 
       await updateDoc(docRef, {
         [`${cardPath}.items.${subType}`]: updatedArray,
@@ -469,13 +468,6 @@ const updateItemInDoc = async (data) => {
 };
 
 const addItemToUserNetworth = async (docId, card, itemType, newItem) => {
-  console.log("Adding item to user net worth:", {
-    docId,
-    card,
-    itemType,
-    newItem,
-  });
-
   try {
     const docRef = doc(db, "budgetData", docId);
     const cardPath = `networth.${card.type}.cards.${card.id}.items.${itemType}`;
@@ -506,11 +498,11 @@ const restoreItemFromLog = async (docId, logItemId, userEmail) => {
     const logSnap = await getDoc(logRef);
 
     if (!logSnap.exists()) {
-      throw new Error("Log item not found");
+      showToast("Log item not found.", "warning");
+      return { success: false, reason: "log_not_found" };
     }
 
     const logItem = logSnap.data();
-
     const {
       item,
       cardType,
@@ -523,30 +515,27 @@ const restoreItemFromLog = async (docId, logItemId, userEmail) => {
 
     if (restored) {
       showToast("Item already restored. Skipping.", "warning");
-      return;
+      return { success: false, reason: "already_restored" };
     }
 
     const userDocRef = doc(db, "budgetData", docId);
     const userDocSnap = await getDoc(userDocRef);
+    const data = userDocSnap.data();
 
-    // Check if the card exists
-    let cardPath = "";
-    if (cardType === "custom") {
-      cardPath = `budget.custom.cards.${cardId}`;
-    } else if (cardType === "standard") {
-      cardPath = `budget.standard.cards.${cardId}`;
-    } else {
-      // asset or liability
-      cardPath = `networth.${cardType}.cards.${cardId}`;
-    }
+    // 🔍 Manually check if the card exists (deep path)
+    const cardExists =
+      cardType === "custom"
+        ? !!data?.budget?.custom?.cards?.[cardId]
+        : cardType === "standard"
+        ? !!data?.budget?.standard?.cards?.[cardId]
+        : !!data?.networth?.[cardType]?.cards?.[cardId];
 
-    const cardExists = !!userDocSnap.get(cardPath);
     if (!cardExists) {
       showToast("The card for this item no longer exists.", "warning");
-      return;
+      return { success: false, reason: "missing_card" };
     }
 
-    // Sanitize key name
+    // 🛡️ Sanitize key for Firestore
     const safeName = item.name.replace(/[.#$/[\]]/g, "_");
 
     // ─── CUSTOM BUDGET ───
@@ -564,7 +553,8 @@ const restoreItemFromLog = async (docId, logItemId, userEmail) => {
           },
         });
       } else {
-        const existing = userDocSnap.get(path) || [];
+        const existing =
+          data?.budget?.custom?.cards?.[cardId]?.items?.spent || [];
         const alreadyExists = existing.some((i) => i.id === item.id);
         if (!alreadyExists) {
           await updateDoc(userDocRef, {
@@ -594,7 +584,8 @@ const restoreItemFromLog = async (docId, logItemId, userEmail) => {
         });
       } else {
         const spentPath = `${basePath}.spent`;
-        const existing = userDocSnap.get(spentPath) || [];
+        const existing =
+          data?.budget?.standard?.cards?.[cardId]?.[section]?.spent || [];
         const alreadyExists = existing.some((i) => i.id === item.id);
         if (!alreadyExists) {
           await updateDoc(userDocRef, {
@@ -618,7 +609,8 @@ const restoreItemFromLog = async (docId, logItemId, userEmail) => {
           : "normal";
 
       const path = `networth.${cardType}.cards.${cardId}.items.${itemType}`;
-      const existing = userDocSnap.get(path) || [];
+      const existing =
+        data?.networth?.[cardType]?.cards?.[cardId]?.items?.[itemType] || [];
       const alreadyExists = existing.some((i) => i.id === item.id);
 
       if (!alreadyExists) {
@@ -638,15 +630,20 @@ const restoreItemFromLog = async (docId, logItemId, userEmail) => {
       }
     }
 
-    // ✅ Mark the log item as restored
-    await updateDoc(logRef, { restored: true });
-    showToast("Item restored successfully!", "success");
-
-    return { success: true, restoredId: item.id };
+    // ✅ Mark the log as restored (and wait before showing toast)
+    try {
+      await updateDoc(logRef, { restored: true });
+      showToast("Item restored successfully!", "success");
+      return { success: true, restoredId: item.id };
+    } catch (logError) {
+      console.error("❌ Failed to mark log as restored:", logError);
+      showToast("Item restored, but log update failed.", "warning");
+      return { success: true, restoredId: item.id, logRestored: false };
+    }
   } catch (error) {
     console.error("❌ Failed to restore item:", error);
-    showToast("Failed to restore item", "error");
-    throw error;
+    showToast("Failed to restore item.", "error");
+    return { success: false, reason: "error", error };
   }
 };
 

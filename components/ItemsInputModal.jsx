@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   View,
   TextInput,
@@ -37,6 +37,7 @@ const ItemsInputModal = ({
   itemFormType,
   categories,
   setModalEditMode,
+  editingItem,
 }) => {
   const closeModal = () => {
     setModalEditMode(false);
@@ -53,6 +54,16 @@ const ItemsInputModal = ({
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
+
+  useEffect(() => {
+    if (editingItem && typeof editingItem === "object") {
+      setName(editingItem.name || "");
+      setPlanned(String(editingItem.planned ?? ""));
+      setSpent(String(editingItem.amount ?? ""));
+      setnetworth(String(editingItem.networth ?? editingItem.value ?? ""));
+      setCategory(editingItem.category || "");
+    }
+  }, [editingItem]);
 
   return (
     <RNModal

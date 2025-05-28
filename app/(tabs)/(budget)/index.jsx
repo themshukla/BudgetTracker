@@ -30,6 +30,7 @@ import { router } from "expo-router";
 import Spinner from "../../../utilities/spinner";
 import AddCardGrid from "../../../utilities/addCardGrid";
 import { getBadgeLabel } from "../../../utilities/getBadgeLabel";
+import CardWrapper from "../../../components/CardWrapper";
 
 const Budget = () => {
   const [cards, setCards] = useState([]);
@@ -82,9 +83,10 @@ const Budget = () => {
   const [itemFormType, setItemFormType] = useState("planned");
 
   const { userEmail, isLoggedIn, userInfo } = useUser();
-
-  const currentCard = cards.find((c) => c.id === currentCardId);
   const [category, setCategory] = useState("");
+  const [removingCardId, setRemovingCardId] = useState(null);
+  const flatListRef = useRef(null);
+  const [newlyAddedCardId, setNewlyAddedCardId] = useState(null);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -101,7 +103,6 @@ const Budget = () => {
           if (data && data.length > 0 && data[0]) {
             const transformedData = formatBudgetData(data[0]);
             setCards(transformedData);
-            console.log("Transformed Data:", transformedData);
             setIsDataReady(true);
             setCurrentDocId(data[0].id);
           } else {
@@ -121,24 +122,11 @@ const Budget = () => {
   }, []);
 
   setTimeout(() => {
-    console.log("cardChanges", cardChanges);
-
-    if (cardChanges.length > 5) {
+    if (cardChanges.length > 0) {
       storeTransactionLog(userEmail, cardChanges);
       setCardChanges([]);
     }
   }, 350);
-
-  const convertArrayToObject = (arr) => {
-    return arr.reduce((acc, item) => {
-      acc[item.name] = {
-        id: item.id,
-        planned: item.planned,
-        spent: item.spent,
-      };
-      return acc;
-    }, {});
-  };
 
   const recalculateTotal = (card) => {
     if (card.type === "custom") {
@@ -613,6 +601,7 @@ const Budget = () => {
 
     try {
       setCards((prevCards) => [...prevCards, newCard]);
+      setNewlyAddedCardId(newCardId);
       await addCardToFirestore(newCard, currentDocId, cardType);
       showToast("Card added successfully!", "success");
     } catch (error) {
@@ -622,9 +611,13 @@ const Budget = () => {
   };
 
   const removeCard = (id, type) => {
-    setCards(cards.filter((card) => card.id !== id));
+    setRemovingCardId(id);
     removeCardFromFirestore(currentDocId, type, id);
+  };
+  const finalizeCardRemoval = (id) => {
+    setCards((prev) => prev.filter((card) => card.id !== id));
     showToast("Card removed successfully!", "success");
+    setRemovingCardId(null);
   };
 
   const updateIncome = (id, income) => {
@@ -641,7 +634,7 @@ const Budget = () => {
     const cardType = card.type;
     const newItemId = uuid.v4();
     const entryType = newItem.entryType;
-    const section = newItem.section || "discretionaryItems"; // for standard cards
+    const section = newItem.section || "discretionaryItems";
     const itemName = newItem.name;
 
     const updatedItem = {
@@ -742,6 +735,7 @@ const Budget = () => {
         badgeLabel: getBadgeLabel({
           cardType,
           entryType,
+          section: cardType === "standard" ? section : null,
         }),
         timestamp: Date.now(),
         month: new Date().toLocaleString("default", { month: "short" }),
@@ -753,8 +747,6 @@ const Budget = () => {
   };
 
   const removeItem = async (cardId, item, { entryType, section = null }) => {
-    console.log("Removing item...", item);
-
     const currentCard = cards.find((card) => card.id === cardId);
     if (!currentCard) return;
 
@@ -893,43 +885,80 @@ const Budget = () => {
             />
           ) : (
             <FlatList
-              data={cards} // ✅ Use cards as data source
-              keyExtractor={(item) => item.id.toString()} // Ensure unique keys
+              ref={flatListRef}
+              data={cards}
+              keyExtractor={(item) => item.id.toString()}
               showsVerticalScrollIndicator={false}
-              renderItem={({ item }) =>
+              renderItem={({ item, index }) =>
                 item.type === "custom" ? (
-                  <CustomCard
-                    card={item}
-                    updateIncome={updateIncome}
-                    handleEdit={handleEdit}
-                    removeItem={removeItem}
-                    setModalVisible={setModalVisible}
-                    setCurrentCardId={setCurrentCardId}
-                    addCard={addCard}
-                    removeCard={removeCard}
-                    setModalType={setModalType}
-                    setItemType={setItemType}
-                    setItemFormType={setItemFormType}
-                    itemFormType={itemFormType}
-                    setCategories={setCategories}
-                  />
+                  <CardWrapper
+                    key={item.id}
+                    index={index}
+                    cardId={item.id}
+                    isRemoving={removingCardId === item.id}
+                    onExitComplete={finalizeCardRemoval}
+                    onEnterComplete={() => {
+                      if (item.id === newlyAddedCardId) {
+                        const index = cards.findIndex((c) => c.id === item.id);
+                        flatListRef.current?.scrollToIndex({
+                          index,
+                          animated: true,
+                        });
+                        setNewlyAddedCardId(null); // reset
+                      }
+                    }}
+                  >
+                    <CustomCard
+                      card={item}
+                      updateIncome={updateIncome}
+                      handleEdit={handleEdit}
+                      removeItem={removeItem}
+                      setModalVisible={setModalVisible}
+                      setCurrentCardId={setCurrentCardId}
+                      addCard={addCard}
+                      removeCard={removeCard}
+                      setModalType={setModalType}
+                      setItemType={setItemType}
+                      setItemFormType={setItemFormType}
+                      itemFormType={itemFormType}
+                      setCategories={setCategories}
+                    />
+                  </CardWrapper>
                 ) : (
-                  <StandardCard
-                    card={item}
-                    updateIncome={updateIncome}
-                    handleEdit={handleEdit}
-                    removeItem={removeItem}
-                    setModalVisible={setModalVisible}
-                    setCurrentCardId={setCurrentCardId}
-                    addCard={addCard}
-                    removeCard={removeCard}
-                    setModalType={setModalType}
-                    setItemType={setItemType}
-                    itemType={itemType}
-                    setItemFormType={setItemFormType}
-                    itemFormType={itemFormType}
-                    setCategories={setCategories}
-                  />
+                  <CardWrapper
+                    key={item.id}
+                    index={index}
+                    cardId={item.id}
+                    isRemoving={removingCardId === item.id}
+                    onExitComplete={finalizeCardRemoval}
+                    onEnterComplete={() => {
+                      if (item.id === newlyAddedCardId) {
+                        const index = cards.findIndex((c) => c.id === item.id);
+                        flatListRef.current?.scrollToIndex({
+                          index,
+                          animated: true,
+                        });
+                        setNewlyAddedCardId(null); // reset
+                      }
+                    }}
+                  >
+                    <StandardCard
+                      card={item}
+                      updateIncome={updateIncome}
+                      handleEdit={handleEdit}
+                      removeItem={removeItem}
+                      setModalVisible={setModalVisible}
+                      setCurrentCardId={setCurrentCardId}
+                      addCard={addCard}
+                      removeCard={removeCard}
+                      setModalType={setModalType}
+                      setItemType={setItemType}
+                      itemType={itemType}
+                      setItemFormType={setItemFormType}
+                      itemFormType={itemFormType}
+                      setCategories={setCategories}
+                    />
+                  </CardWrapper>
                 )
               }
               style={styles.scrollView}

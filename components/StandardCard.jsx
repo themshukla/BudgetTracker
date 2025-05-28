@@ -16,6 +16,7 @@ import {
   MenuTrigger,
 } from "react-native-popup-menu";
 import { formatCurrency } from "../utilities/formartCurrency";
+import AnimatedRow from "../components/AnimatedRow";
 
 const StandardCard = ({
   card,
@@ -189,10 +190,12 @@ const StandardCard = ({
 
         if (tabKey === "remaining") {
           return (
-            <View key={item.id} style={styles.cardBodyContent}>
-              <Text style={styles.cardItem}>{labelText}</Text>
-              <Text style={styles.cardItem}>{formatCurrency(value)}</Text>
-            </View>
+            <AnimatedRow key={item.id}>
+              <View key={item.id} style={styles.cardBodyContent}>
+                <Text style={styles.cardItem}>{labelText}</Text>
+                <Text style={styles.cardItem}>{formatCurrency(value)}</Text>
+              </View>
+            </AnimatedRow>
           );
         }
 
@@ -236,10 +239,12 @@ const StandardCard = ({
               }
             }}
           >
-            <View style={styles.cardBodyContent}>
-              <Text style={styles.cardItem}>{labelText}</Text>
-              <Text style={styles.cardItem}>{formatCurrency(value)}</Text>
-            </View>
+            <AnimatedRow>
+              <View style={styles.cardBodyContent}>
+                <Text style={styles.cardItem}>{labelText}</Text>
+                <Text style={styles.cardItem}>{formatCurrency(value)}</Text>
+              </View>
+            </AnimatedRow>
           </Swipeable>
         );
       });

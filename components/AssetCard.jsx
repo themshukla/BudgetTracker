@@ -16,6 +16,7 @@ import {
 } from "react-native-popup-menu";
 import { formatCurrency } from "../utilities/formartCurrency";
 import { TabView, TabBar } from "react-native-tab-view";
+import AnimatedRow from "../components/AnimatedRow";
 
 const AssetCard = ({
   card,
@@ -95,7 +96,7 @@ const AssetCard = ({
         <Pressable
           style={{ marginLeft: 10 }}
           onPress={() => {
-            removeItem(card.id, item.id);
+            removeItem(card.id, item);
             if (refArray[index]) refArray[index].close();
           }}
         >
@@ -133,10 +134,14 @@ const AssetCard = ({
           }}
           ref={(ref) => (refArray[index] = ref)}
         >
-          <View style={styles.cardBodyContent}>
-            <Text style={styles.cardItem}>{item.name}</Text>
-            <Text style={styles.cardItem}>{formatCurrency(item.networth)}</Text>
-          </View>
+          <AnimatedRow key={item.id}>
+            <View style={styles.cardBodyContent}>
+              <Text style={styles.cardItem}>{item.name}</Text>
+              <Text style={styles.cardItem}>
+                {formatCurrency(item.networth)}
+              </Text>
+            </View>
+          </AnimatedRow>
         </Swipeable>
       ))}
     </>
@@ -145,6 +150,7 @@ const AssetCard = ({
   const renderScene = ({ route }) => {
     const type = route.key;
     const items = card.items?.[type] || [];
+
     const refArray =
       type === "normal"
         ? normalSwipeableRefs.current
