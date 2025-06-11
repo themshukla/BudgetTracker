@@ -15,7 +15,7 @@ export default function Layout() {
             name="arrowleft"
             size={24}
             color="#fefefe"
-            onPress={() => router.back()}
+            onPress={() => router.replace("/(tabs)/(budget)")}
           />
         ),
         headerRight: () => (

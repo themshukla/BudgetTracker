@@ -11,7 +11,7 @@ export default {
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "budget.tracker",
+      bundleIdentifier: "com.app.budgetTracker",
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
       },
@@ -22,7 +22,7 @@ export default {
         foregroundImage: "./assets/images/adaptive-icon.png",
         backgroundColor: "#ffffff",
       },
-      package: "budget.tracker",
+      package: "com.app.budgetTracker",
       googleServicesFile: process.env.GOOGLE_SERVICE_JSON,
     },
     web: {
@@ -68,12 +68,13 @@ export default {
         projectId: "51ae6493-10e8-43dd-aacc-33c3fbe0be9e",
       },
       firebaseConfig: {
-        apiKey: "AIzaSyCcUwq2h-u6Q36MhyzyFE6lOfmYlAepAdA",
-        authDomain: "budgettracker-bb444.firebaseapp.com",
-        projectId: "budgettracker-bb444",
-        storageBucket: "budgettracker-bb444.appspot.com",
-        messagingSenderId: "877359022917",
-        appId: "1:877359022917:android:e1ba7ae16456d6b3fc742c",
+        apiKey: "AIzaSyAhMPLGUWcrRfDjS5NcdG1M5dnbr43BUmo",
+        authDomain: "budget-tracker-973da.firebaseapp.com",
+        projectId: "budget-tracker-973da",
+        storageBucket: "budget-tracker-973da.firebasestorage.app",
+        messagingSenderId: "1095483865963",
+        appId: "1:1095483865963:ios:9cecdd01095c182d5f6a2e",
+        measurementId: "G-FW0YV3ZCF1",
       },
     },
     doctor: {

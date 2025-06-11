@@ -1,11 +1,17 @@
-import { Tabs } from "expo-router";
-import { View, StyleSheet } from "react-native";
+import { Tabs, useRouter } from "expo-router";
+import { View, StyleSheet, TouchableOpacity, Linking } from "react-native";
 import TabBar from "../../components/TabBar";
+import { createDrawerNavigator } from "@react-navigation/drawer";
+import Text from "../../components/Text";
 
-export default function TabLayout() {
+const Drawer = createDrawerNavigator();
+
+function AllTabs() {
   return (
     <View style={styles.root}>
       <Tabs
+        initialRouteName="(budget)"
+        name="(tabs)"
         screenOptions={{
           headerShown: false,
           lazy: false,
@@ -40,6 +46,88 @@ export default function TabLayout() {
         />
       </Tabs>
     </View>
+  );
+}
+
+function CustomDrawerContent({ navigation }) {
+  const router = useRouter();
+  return (
+    <View style={{ flex: 1, backgroundColor: "#322A28" }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          marginTop: 150,
+          paddingVertical: 24,
+        }}
+      >
+        {[
+          { label: "🏠 Home", href: "/(tabs)/(budget)" },
+          { label: "📅 Monthly Expenses", href: "/(tabs)/(networth)" },
+          { label: "📝 Transaction Logs", href: "/transaction" },
+          { label: "⚙️ Account", href: "/(tabs)/userAccount" },
+        ].map(({ label, href }) => (
+          <TouchableOpacity
+            key={href}
+            style={{
+              paddingVertical: 12,
+              paddingHorizontal: 10,
+              borderBottomWidth: 0.5,
+              borderBottomColor: "#444",
+            }}
+            onPress={() => router.replace(href) || navigation.closeDrawer()}
+            activeOpacity={0.7}
+          >
+            <Text style={{ color: "#FEFEFE", fontSize: 16 }}>{label}</Text>
+          </TouchableOpacity>
+        ))}
+
+        {/* Contact Developer */}
+        <TouchableOpacity
+          onPress={() => Linking.openURL("mailto:kmilan604@gmail.com")}
+          style={{
+            paddingVertical: 12,
+            paddingHorizontal: 10,
+            borderBottomWidth: 0.5,
+            borderBottomColor: "#444",
+          }}
+        >
+          <Text style={{ color: "#FEFEFE", fontSize: 16 }}>
+            📧 Contact Developer
+          </Text>
+        </TouchableOpacity>
+
+        {/* Spacer */}
+        <View style={{ flex: 1 }} />
+
+        {/* Footer */}
+        <View style={{ alignItems: "center", paddingVertical: 16 }}>
+          <Text style={{ color: "#aaa", fontSize: 12 }}>
+            Built by Milan Budhathoki
+          </Text>
+          <TouchableOpacity
+            onPress={() =>
+              Linking.openURL("https://milan-budhathoki.netlify.app")
+            }
+          >
+            <Text style={{ color: "#BA9731", fontSize: 14, marginTop: 4 }}>
+              Visit Portfolio
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+export default function TabLayout() {
+  return (
+    <Drawer.Navigator
+      screenOptions={{ headerShown: false, drawerType: "back" }}
+      drawerContent={(props) => <CustomDrawerContent {...props} />}
+    >
+      <Drawer.Screen name="Home" component={AllTabs} />
+    </Drawer.Navigator>
   );
 }
 

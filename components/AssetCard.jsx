@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import { View, Pressable, ScrollView, useWindowDimensions } from "react-native";
 import Text from "./Text";
-import { AntDesign, Ionicons, EvilIcons } from "@expo/vector-icons";
+import { AntDesign, Ionicons, EvilIcons, Feather } from "@expo/vector-icons";
 import styles from "../utilities/styles";
 import Reanimated, {
   useAnimatedStyle,
@@ -187,7 +187,9 @@ const AssetCard = ({
       <View style={{ flex: 1 }}>
         <View style={styles.cardBodyContent}>
           <Text style={styles.cardItemHeader}>Assets</Text>
-          <Text style={styles.cardItemHeader}>$</Text>
+          <View style={styles.cardItemHeader}>
+            <Feather name="dollar-sign" size={20} color="#BA9731" />
+          </View>
         </View>
         <View style={styles.dividerHeader} />
         <ScrollView

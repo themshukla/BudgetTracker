@@ -8,6 +8,8 @@ import Reanimated, {
   useAnimatedStyle,
   interpolate,
 } from "react-native-reanimated";
+import Animated, { useSharedValue, withTiming } from "react-native-reanimated";
+
 import {
   Menu,
   MenuOptions,
@@ -45,6 +47,8 @@ const CustomCard = ({
   ];
 
   const [hasContent, setHasContent] = useState(false);
+  const [filteredItems, setFilteredItems] = useState([]);
+  const scrollRef = useRef(null);
 
   useEffect(() => {
     const planned = card?.items?.planned ?? {};
@@ -141,7 +145,7 @@ const CustomCard = ({
     );
   };
 
-  const renderScene = ({ route }) => {
+  function renderScene({ route }) {
     const type = route.key;
 
     const filteredItems =
@@ -245,8 +249,12 @@ const CustomCard = ({
       <View>
         {filteredItems.length > 0 ? (
           <>
-            <View style={{ flexGrow: 1 }}>
-              <View style={styles.cardBody}>{renderItems()}</View>
+            <View>
+              <View style={styles.cardBody}>
+                <ScrollView ref={scrollRef} style={{ height: 140 }}>
+                  {renderItems()}
+                </ScrollView>
+              </View>
             </View>
             <View style={styles.dividerFooter} />
             <View style={styles.foot}>
@@ -310,7 +318,7 @@ const CustomCard = ({
         )}
       </View>
     );
-  };
+  }
 
   return (
     <View style={styles.card}>

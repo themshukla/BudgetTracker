@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import { View, Pressable, ScrollView, useWindowDimensions } from "react-native";
 import Text from "./Text";
-import { AntDesign, Ionicons, EvilIcons } from "@expo/vector-icons";
+import { AntDesign, Ionicons, EvilIcons, Feather } from "@expo/vector-icons";
 import styles from "../utilities/styles";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import Reanimated, {
@@ -258,10 +258,16 @@ const StandardCard = ({
 
     return (
       <View style={{ marginVertical: 10 }}>
-        <Text style={styles.cardItemHeader}>{label}</Text>
+        <View style={styles.cardHead}>
+          <Text style={styles.cardItemHeader}>{label}</Text>
+          <View style={styles.cardItemHeader}>
+            <Feather name="dollar-sign" size={20} color="#BA9731" />
+          </View>
+        </View>
+        <View style={styles.dividerFooter} />
         {filteredItems.length > 0 ? (
           <ScrollView
-            style={{ maxHeight: 200 }}
+            style={{ height: 130 }}
             contentContainerStyle={{ paddingBottom: 10 }}
           >
             <View style={styles.cardBody}>{renderItems()}</View>

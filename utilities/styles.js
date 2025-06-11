@@ -157,7 +157,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#BA9731",
     borderStyle: "solid",
-    marginTop: 10,
   },
   cardItem: {
     // marginVertical: 5,
@@ -183,6 +182,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     textAlign: "center",
+    fontSize: 20,
     color: "#fefefe",
     marginVertical: 5,
   },
